@@ -1,0 +1,11 @@
+﻿node_modules
+dist
+*.local
+
+# Private test fixtures (D&D Beyond PDFs: player names, non-SRD content)
+test characters/
+
+# Private data converted from the author's markdown library (never deployed)
+data/private/
+public/private/
+*.private.json

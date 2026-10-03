@@ -73,6 +73,55 @@ export interface Creature extends Defenses {
   deathSaves: DeathSaves;
 }
 
+export type Team = 'party' | 'enemies';
+
+/** Target choice profile (action choice is shared by everyone). */
+export type TargetProfile = 'weakest' | 'threat' | 'random';
+
+interface ActionBase {
+  name: string;
+  /** Variants of one spell at different slot levels share this key. Defaults to `name`. */
+  spell?: string;
+  /** Spell slot level spent; 0 or undefined means free (cantrip, weapon, monster action). */
+  slotLevel?: number;
+}
+
+export interface AttackAction extends ActionBase {
+  kind: 'attack';
+  attack: AttackOption;
+  /** Attacks made per action (Multiattack / Extra Attack). Default 1. */
+  count?: number;
+}
+
+export interface SaveAction extends ActionBase {
+  kind: 'save';
+  save: SaveOption;
+  /** Hits several enemies (no grid: up to the fight's area-target setting). */
+  area?: boolean;
+  /** Self-limiting spells (like Burning Hands) hit at most this many. */
+  maxTargets?: number;
+}
+
+export type Action = AttackAction | SaveAction;
+
+export interface HealAction extends ActionBase {
+  dice: string;
+}
+
+export interface Combatant {
+  creature: Creature;
+  team: Team;
+  profile: TargetProfile;
+  actions: Action[];
+  heals: HealAction[];
+  /** Remaining spell slots by level. */
+  slots: Record<number, number>;
+  /** Extra initiative modifier on top of the Dexterity modifier. */
+  initiativeBonus?: number;
+  /** Combatants sharing a key roll initiative once when grouping is on (e.g. identical goblins). */
+  groupKey?: string;
+}
+
 export function abilityMod(score: number): number {
   return Math.floor((score - 10) / 2);
 }

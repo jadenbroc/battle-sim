@@ -148,8 +148,12 @@ export function parseSrdBlock(lines: readonly string[], overrideTable?: AbilityT
   const section = (n: string): MonsterFeature[] => entriesOf(sections.get(n) ?? []);
 
   const actionEntries = section('Actions');
+  const bonusEntries = section('Bonus Actions');
   const actionPart = classifyActions(actionEntries, notes);
-  for (const e of actionEntries) for (const msg of damageAverageProblems(e.text)) problems.push(`: ${msg}`);
+  const bonusPart = classifyActions(bonusEntries, notes, { bonus: true });
+  for (const e of [...actionEntries, ...bonusEntries]) {
+    for (const msg of damageAverageProblems(e.text)) problems.push(`${e.name}: ${msg}`);
+  }
 
   // Immunities: "Necrotic, Poison; Charmed, Exhaustion" (damage types, then conditions).
   const immunityText = field('Immunities') ?? '';
@@ -183,8 +187,9 @@ export function parseSrdBlock(lines: readonly string[], overrideTable?: AbilityT
     immunities: damageTypes(list(immDamage), 'Immunity', notes),
     conditionImmunities: list(immConditions),
     ...actionPart,
+    actions: [...actionPart.actions, ...bonusPart.actions],
     traits: section('Traits'),
-    bonusActions: section('Bonus Actions'),
+    bonusActions: bonusPart.otherActions,
     reactions: section('Reactions'),
     legendaryActions: section('Legendary Actions'),
     notes,

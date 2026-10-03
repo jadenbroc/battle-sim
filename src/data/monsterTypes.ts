@@ -7,11 +7,10 @@ export interface MonsterFeature {
 }
 
 /**
- * An action the engine can simulate (a weapon attack or a damage-dealing save effect).
- * `limit` holds the raw "Recharge 5-6" / "3/Day" text; limited-use actions are kept here but
- * left out of fights until recharge and daily limits are modelled.
+ * An action the engine can simulate (a weapon attack or a damage-dealing save effect). It may
+ * carry a usage `limit` (recharge or N per day) and a `bonus` flag for the bonus action slot.
  */
-export type MonsterAction = (AttackAction | SaveAction) & { limit?: string };
+export type MonsterAction = AttackAction | SaveAction;
 
 /**
  * One entry of a Multiattack, e.g. "two Claw attacks" -> { action: 'Claw', count: 2 }.

@@ -58,14 +58,15 @@ export function adjustGroup(group: readonly GroupEntry[], id: string, delta: num
 
 // ----- Monster -> engine combatants -----
 
-const isUnlimited = (a: MonsterAction): boolean => !a.limit;
+/** Plain actions (no usage limit, not a bonus action) are what a Multiattack can draw on. */
+const isPlain = (a: MonsterAction): boolean => !a.limit && !a.bonus;
 
 /**
- * Actions the engine can use. Limited-use actions (recharge, N/day) are left out until those are
- * modelled. Multiattack becomes one action that runs its attacks in order.
+ * Actions the engine can use, including recharge and per-day abilities and bonus actions (the
+ * engine tracks their uses). Multiattack becomes one action that runs its attacks in order.
  */
 export function engineActions(def: MonsterDef): Action[] {
-  const actions: Action[] = def.actions.filter(isUnlimited).map(stripLimit);
+  const actions: Action[] = structuredClone(def.actions);
   const { sequence } = resolveMultiattack(def);
   if (sequence.length > 1) {
     const multi: AttackAction = { kind: 'attack', name: 'Multiattack', attack: sequence[0]!, sequence };
@@ -82,7 +83,7 @@ const avgDamage = (a: AttackOption): number => a.damage.reduce((sum, d) => sum +
  */
 export function resolveMultiattack(def: MonsterDef): { sequence: AttackOption[]; complete: boolean } {
   const attacks = new Map<string, AttackOption>();
-  for (const a of def.actions) if (isUnlimited(a) && a.kind === 'attack') attacks.set(a.name.toLowerCase(), a.attack);
+  for (const a of def.actions) if (isPlain(a) && a.kind === 'attack') attacks.set(a.name.toLowerCase(), a.attack);
 
   const parts = def.multiattack?.parts ?? [];
   const sequence: AttackOption[] = [];
@@ -99,16 +100,9 @@ export function resolveMultiattack(def: MonsterDef): { sequence: AttackOption[];
   return { sequence, complete };
 }
 
-function stripLimit(a: MonsterAction): Action {
-  const { limit: _limit, ...rest } = a;
-  return rest;
-}
-
 /** What the engine will not simulate for this monster, for a visible warning in the UI. */
 export function notSimulated(def: MonsterDef): string[] {
   const out: string[] = [];
-  const limited = def.actions.filter((a) => a.limit).map((a) => `${a.name} (${a.limit})`);
-  if (limited.length) out.push(`Limited-use actions: ${limited.join(', ')}`);
   if (def.otherActions.length) out.push(`Other actions: ${def.otherActions.map((a) => a.name).join(', ')}`);
   if (def.bonusActions.length) out.push(`Bonus actions: ${def.bonusActions.map((a) => a.name).join(', ')}`);
   if (def.reactions.length) out.push(`Reactions: ${def.reactions.map((a) => a.name).join(', ')}`);

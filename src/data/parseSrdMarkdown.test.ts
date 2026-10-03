@@ -163,7 +163,7 @@ describe('parseSrdBlock', () => {
     expect(dragon.def.multiattack?.parts).toEqual([{ action: 'Rend', count: 3 }]);
     expect(dragon.def.actions.map((a) => [a.name, a.limit])).toEqual([
       ['Rend', undefined],
-      ['Fire Breath', 'Recharge 5-6'],
+      ['Fire Breath', { kind: 'recharge', min: 5 }],
     ]);
     const rend = dragon.def.actions[0]!;
     expect(rend.kind === 'attack' && rend.attack.damage).toEqual([

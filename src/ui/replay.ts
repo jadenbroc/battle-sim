@@ -96,6 +96,11 @@ export function formatEvent(event: LogEvent): FormattedEvent {
       };
       return { kind, text: `${event.actor} makes a death save (${event.natural}): ${results[event.outcome]}.` };
     }
+    case 'recharge':
+      return {
+        kind,
+        text: `${event.actor} rolls to recharge ${event.option}: ${event.roll}, ${event.success ? 'recharged!' : 'still recharging.'}`,
+      };
     case 'no-action':
       return { kind, text: `${event.actor} has nothing to do.` };
     case 'end': {

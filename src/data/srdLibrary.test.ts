@@ -93,11 +93,32 @@ describe('bundled SRD library', () => {
     expect(multi?.kind === 'attack' && multi.sequence).toHaveLength(2);
   });
 
-  it('keeps the dragon breath out of fights but still lists it', () => {
+  it('gives the dragon its recharging breath', () => {
     const d = get('adult-red-dragon');
-    expect(d.actions.find((a) => a.name === 'Fire Breath')).toMatchObject({ limit: 'Recharge 5-6', area: true });
-    expect(engineActions(d).some((a) => a.name === 'Fire Breath')).toBe(false);
+    expect(d.actions.find((a) => a.name === 'Fire Breath')).toMatchObject({ limit: { kind: 'recharge', min: 5 }, area: true });
+    expect(engineActions(d).some((a) => a.name === 'Fire Breath')).toBe(true);
     expect(d.immunities).toEqual(['fire']);
+  });
+
+  it('reads recharge-6 abilities, per-day abilities and damaging bonus actions', () => {
+    expect(get('ankheg').actions.find((a) => a.name === 'Acid Spray')?.limit).toEqual({ kind: 'recharge', min: 6 });
+    expect(get('ankheg').actions.find((a) => a.name === 'Bite')).toBeDefined();
+    expect(get('vrock').actions.find((a) => a.name === 'Stunning Screech')?.limit).toEqual({ kind: 'perDay', uses: 1 });
+    expect(get('nalfeshnee').actions.find((a) => a.name === 'Horror Nimbus')).toMatchObject({ bonus: true, limit: { kind: 'recharge', min: 5 } });
+  });
+
+  it('leaves actions that need a prone or grappled target unsimulated', () => {
+    expect(get('elephant').actions.map((a) => a.name)).not.toContain('Trample');
+    expect(get('behir').actions.map((a) => a.name)).not.toContain('Swallow');
+    expect(get('behir').bonusActions.map((a) => a.name)).toContain('Swallow');
+  });
+
+  it('every limit is a structured recharge or per-day limit', () => {
+    for (const m of lib) {
+      for (const a of m.actions) {
+        if (a.limit) expect(['recharge', 'perDay'], `${m.name} ${a.name}`).toContain(a.limit.kind);
+      }
+    }
   });
 
   it('can fight: a real SRD group against a strong hero', () => {

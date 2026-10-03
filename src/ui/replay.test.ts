@@ -34,6 +34,13 @@ describe('replay', () => {
     }
   });
 
+  it('formats recharge rolls', () => {
+    expect(formatEvent({ kind: 'recharge', actor: 'Dragon', option: 'Fire Breath', roll: 5, success: true }).text).toBe(
+      'Dragon rolls to recharge Fire Breath: 5, recharged!',
+    );
+    expect(formatEvent({ kind: 'recharge', actor: 'Dragon', option: 'Fire Breath', roll: 2, success: false }).text).toContain('still recharging');
+  });
+
   it('formats a representative attack', () => {
     const attack = result.log.find((l) => l.event.kind === 'attack')!;
     expect(formatEvent(attack.event).text).toMatch(/attacks .* with .*: \d+, (miss|hit|CRITICAL HIT)/);

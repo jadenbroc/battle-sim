@@ -2,6 +2,7 @@ import { averageDice, parseDice } from './dice';
 import type { Rng } from './rng';
 import {
   attackSequence,
+  hasUses,
   saveModifier,
   type Action,
   type AttackAction,
@@ -14,6 +15,7 @@ import {
   type SaveAction,
   type SaveOption,
   type TargetProfile,
+  type UseLimit,
 } from './types';
 
 /** Heal instead of attacking when an ally is below this fraction of max HP. */
@@ -68,17 +70,24 @@ interface SlotCost {
   name: string;
   spell?: string;
   slotLevel?: number;
+  limit?: UseLimit;
 }
 
 /**
- * Options the creature can afford right now. For each spell, only the lowest affordable slot
- * level is kept, so casters never burn a higher slot than they need.
+ * Options the creature can afford right now: slots available and uses left (recharge abilities
+ * that have not recharged are out). For each spell, only the lowest affordable slot level is
+ * kept, so casters never burn a higher slot than they need.
  */
-export function usableOptions<T extends SlotCost>(options: readonly T[], slots: Record<number, number>): T[] {
+export function usableOptions<T extends SlotCost>(
+  options: readonly T[],
+  slots: Record<number, number>,
+  uses: Pick<Combatant, 'usesLeft'> = {},
+): T[] {
   const best = new Map<string, T>();
   for (const o of options) {
     const level = o.slotLevel ?? 0;
     if (level > 0 && (slots[level] ?? 0) <= 0) continue;
+    if (!hasUses(uses, o)) continue;
     const key = o.spell ?? o.name;
     const current = best.get(key);
     if (!current || level < (current.slotLevel ?? 0)) best.set(key, o);
@@ -109,8 +118,17 @@ export function chooseTarget(profile: TargetProfile, candidates: readonly Combat
   return best;
 }
 
-function planHeal(actor: Combatant, allies: readonly Combatant[]): Plan | null {
-  const heals = usableOptions(actor.heals, actor.slots);
+/** Which of a turn's two slots an option is for. */
+export type Slot = 'action' | 'bonus';
+
+const inSlot = (o: { bonus?: boolean }, slot: Slot): boolean => !!o.bonus === (slot === 'bonus');
+
+function planHeal(actor: Combatant, allies: readonly Combatant[], slot: Slot): Plan | null {
+  const heals = usableOptions(
+    actor.heals.filter((h) => inSlot(h, slot)),
+    actor.slots,
+    actor,
+  );
   if (heals.length === 0) return null;
 
   const needy = allies
@@ -135,12 +153,21 @@ function expectedFor(action: Action, targets: readonly Combatant[], primary: Com
   return targets.reduce((sum, t) => sum + expectedSaveDamage(action.save, t.creature), 0);
 }
 
-/** Decide what one creature does on its turn: heal if an ally is low, else the best damage option. */
-export function planTurn(actor: Combatant, fighters: readonly Combatant[], rng: Rng, areaTargets: number): Plan | null {
+/**
+ * Decide what one creature does with its action or bonus action: heal if an ally is low, else
+ * the best damage option. Returns null when it has nothing usable (common for bonus actions).
+ */
+export function planTurn(
+  actor: Combatant,
+  fighters: readonly Combatant[],
+  rng: Rng,
+  areaTargets: number,
+  slot: Slot = 'action',
+): Plan | null {
   const allies = fighters.filter((f) => f.team === actor.team);
   const enemies = fighters.filter((f) => f.team !== actor.team);
 
-  const heal = planHeal(actor, allies);
+  const heal = planHeal(actor, allies, slot);
   if (heal) return heal;
 
   const candidates = validTargets(enemies);
@@ -150,7 +177,12 @@ export function planTurn(actor: Combatant, fighters: readonly Combatant[], rng: 
   const areaList = [...candidates].sort((a, b) => b.creature.hp - a.creature.hp);
 
   let best: { action: Action; targets: Combatant[]; score: number } | null = null;
-  for (const action of usableOptions(actor.actions, actor.slots)) {
+  const options = usableOptions(
+    actor.actions.filter((a) => inSlot(a, slot)),
+    actor.slots,
+    actor,
+  );
+  for (const action of options) {
     const cap = action.kind === 'save' && action.area ? Math.min(areaTargets, action.maxTargets ?? Infinity) : 1;
     const targets = action.kind === 'save' && action.area ? areaList.slice(0, Math.max(1, cap)) : [primary];
     const score = expectedFor(action, targets, primary);

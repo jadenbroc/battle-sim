@@ -78,12 +78,24 @@ export type Team = 'party' | 'enemies';
 /** Target choice profile (action choice is shared by everyone). */
 export type TargetProfile = 'weakest' | 'threat' | 'random';
 
+/**
+ * How often an action can be used in a fight (there are no rests inside one fight):
+ * - recharge: available at the start; once used, rolls a d6 at the start of each of the
+ *   creature's turns and becomes available again on `min` or higher ("Recharge 5-6" -> min 5).
+ * - perDay: `uses` times per fight ("3/Day"; "Recharges after a Short or Long Rest" is 1).
+ */
+export type UseLimit = { kind: 'recharge'; min: number } | { kind: 'perDay'; uses: number };
+
 interface ActionBase {
   name: string;
   /** Variants of one spell at different slot levels share this key. Defaults to `name`. */
   spell?: string;
   /** Spell slot level spent; 0 or undefined means free (cantrip, weapon, monster action). */
   slotLevel?: number;
+  /** Usage limit; absent means unlimited. Tracked per combatant by action name. */
+  limit?: UseLimit;
+  /** Takes the bonus action instead of the action. A creature gets one of each per turn. */
+  bonus?: boolean;
 }
 
 export interface AttackAction extends ActionBase {
@@ -93,6 +105,17 @@ export interface AttackAction extends ActionBase {
   count?: number;
   /** Mixed Multiattack (e.g. 2 Claw + 1 Bite): attacks made in order. Overrides `attack` and `count`. */
   sequence?: AttackOption[];
+}
+
+/** Uses an action starts a fight with. */
+export function initialUses(limit: UseLimit): number {
+  return limit.kind === 'recharge' ? 1 : limit.uses;
+}
+
+/** True if the action has uses left (unlimited actions always do). */
+export function hasUses(c: Pick<Combatant, 'usesLeft'>, action: { name: string; limit?: UseLimit }): boolean {
+  if (!action.limit) return true;
+  return (c.usesLeft?.[action.name] ?? initialUses(action.limit)) > 0;
 }
 
 /** The attacks an attack action makes, in order. */
@@ -123,6 +146,11 @@ export interface Combatant {
   heals: HealAction[];
   /** Remaining spell slots by level. */
   slots: Record<number, number>;
+  /**
+   * Uses left of limited actions, keyed by action name (recharge abilities: 1 or 0). A missing key
+   * means the action has all of its uses.
+   */
+  usesLeft?: Record<string, number>;
   /** Extra initiative modifier on top of the Dexterity modifier. */
   initiativeBonus?: number;
   /** Combatants sharing a key roll initiative once when grouping is on (e.g. identical goblins). */

@@ -141,22 +141,30 @@ describe('engineActions', () => {
     expect(notSimulated(m).join(' ')).not.toContain('Multiattack');
   });
 
-  it('leaves limited-use actions out', () => {
+  it('keeps recharge and bonus actions, with their limits, for the engine to track', () => {
+    const breath = {
+      kind: 'save' as const,
+      name: 'Breath',
+      limit: { kind: 'recharge' as const, min: 5 },
+      area: true,
+      save: { name: 'Breath', ability: 'dex' as const, dc: 15, halfOnSave: true, damage: [{ dice: '10d6', type: 'fire' as const }] },
+    };
+    const m = def({ actions: [...base.actions, breath, { ...breath, name: 'Nimbus', bonus: true }] });
+    const acts = engineActions(m);
+    expect(acts.map((a) => a.name)).toEqual(['Claw', 'Bite', 'Breath', 'Nimbus']);
+    expect(acts[2]!.limit).toEqual({ kind: 'recharge', min: 5 });
+    expect(acts[3]!.bonus).toBe(true);
+    expect(notSimulated(m).join(' ')).not.toContain('Breath');
+  });
+
+  it('never builds a multiattack from limited or bonus attacks', () => {
+    const limited = { kind: 'attack' as const, name: 'Claw', limit: { kind: 'perDay' as const, uses: 1 }, attack: claw };
     const m = def({
-      actions: [
-        ...base.actions,
-        {
-          kind: 'save',
-          name: 'Breath',
-          limit: 'Recharge 5-6',
-          area: true,
-          save: { name: 'Breath', ability: 'dex', dc: 15, halfOnSave: true, damage: [{ dice: '10d6', type: 'fire' }] },
-        },
-      ],
+      actions: [limited, { kind: 'attack', name: 'Bite', attack: bite }],
+      multiattack: { text: 'two Claw attacks', parts: [{ action: 'Claw', count: 2 }] },
     });
-    expect(engineActions(m).map((a) => a.name)).toEqual(['Claw', 'Bite']);
-    expect(notSimulated(m).join(' ')).toContain('Breath (Recharge 5-6)');
-    expect(JSON.stringify(engineActions(m))).not.toContain('limit');
+    expect(engineActions(m).some((a) => a.name === 'Multiattack')).toBe(false);
+    expect(notSimulated(m).join(' ')).toContain('Multiattack only partly simulated');
   });
 
   it('warns about a monster with nothing to simulate', () => {

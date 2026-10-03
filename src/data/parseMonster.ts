@@ -5,6 +5,7 @@ import {
   type DamageComponent,
   type DamageType,
   type SaveOption,
+  type UseLimit,
 } from '../engine/types';
 import type { MonsterAction, MonsterDef, MonsterFeature, MultiattackPart } from './monsterTypes';
 
@@ -49,7 +50,34 @@ export function splitLimit(name: string): { base: string; limit?: string } {
   return { base: name };
 }
 
-const DAMAGE_RE = /(\d+)(?:\s*\(\s*(\d+d\d+(?:\s*[+-]\s*\d+)?)\s*\))?\s+([A-Za-z]+)\s+damage/g;
+/**
+ * "Recharge 5-6" -> recharge on 5 or 6. "Recharge 6" -> on 6. "3/Day" -> 3 uses.
+ * "Recharges after a Short or Long Rest" -> 1 use (a fight has no rests). Anything else is
+ * not understood and returns undefined.
+ */
+export function parseUseLimit(text: string): UseLimit | undefined {
+  const t = clean(text);
+  const recharge = /^Recharge (\d)(?:-\d)?$/i.exec(t);
+  if (recharge) return { kind: 'recharge', min: +recharge[1]! };
+  const perDay = /^(\d+)\/Day$/i.exec(t);
+  if (perDay) return { kind: 'perDay', uses: +perDay[1]! };
+  if (/^Recharges? after a Short or Long Rest$/i.test(t)) return { kind: 'perDay', uses: 1 };
+  return undefined;
+}
+
+/**
+ * True when an action only works on a target in some condition ("one creature within 5 feet that
+ * has the Prone condition", "Grappled by the behir"). Conditions are not tracked yet, so these
+ * would misfire if simulated.
+ */
+export function requiresTargetCondition(text: string): boolean {
+  const t = clean(text);
+  // Parentheticals are optional extras ("+5 (with Advantage if the target is Grappled by ...)").
+  const before = t.split(/\b(?:Failure|Hit):/)[0]!.replace(/\([^)]*\)/g, ' ');
+  return /\b(?:has|have) the (?:Prone|Grappled|Restrained|Incapacitated|Stunned|Paralyzed|Unconscious|Blinded|Charmed|Frightened|Poisoned) condition/i.test(before) || /\bGrappled by\b/i.test(before);
+}
+
+const DAMAGE_RE =/(\d+)(?:\s*\(\s*(\d+d\d+(?:\s*[+-]\s*\d+)?)\s*\))?\s+([A-Za-z]+)\s+damage/g;
 
 /**
  * Damage components from the start of `text` onward: the first "N (dice) Type damage", then any
@@ -154,7 +182,9 @@ export function damageTypes(entries: readonly string[], label: string, notes: st
 export function classifyActions(
   entries: readonly MonsterFeature[],
   notes: string[],
+  opts: { bonus?: boolean } = {},
 ): Pick<MonsterDef, 'actions' | 'multiattack' | 'otherActions'> {
+  const slot = opts.bonus ? { bonus: true as const } : {};
   const actions: MonsterAction[] = [];
   const otherActions: MonsterFeature[] = [];
   let multiattack: MonsterDef['multiattack'];
@@ -168,16 +198,23 @@ export function classifyActions(
       f.name = form[1]!.trim();
       notes.push(`${f.name} is only usable in some forms (${form[2]}); the simulator allows it at all times`);
     }
-    const { base, limit } = splitLimit(f.name);
+    const { base, limit: limitText } = splitLimit(f.name);
 
-    if (base === 'Multiattack') {
+    if (base === 'Multiattack' && !opts.bonus) {
       multiattack = { text: f.text, parts: parseMultiattack(f.text) };
+      continue;
+    }
+
+    // A usage limit we do not understand, or a condition we cannot track: leave it unsimulated.
+    const limit = limitText ? parseUseLimit(limitText) : undefined;
+    if ((limitText && !limit) || requiresTargetCondition(f.text)) {
+      otherActions.push(f);
       continue;
     }
 
     const attack = parseAttack(base, f.text);
     if (attack) {
-      actions.push({ kind: 'attack', name: base, attack, ...(limit ? { limit } : {}) });
+      actions.push({ kind: 'attack', name: base, attack, ...(limit ? { limit } : {}), ...slot });
       continue;
     }
 
@@ -189,6 +226,7 @@ export function classifyActions(
         save: save.save,
         ...(save.area ? { area: true } : {}),
         ...(limit ? { limit } : {}),
+        ...slot,
       });
       continue;
     }

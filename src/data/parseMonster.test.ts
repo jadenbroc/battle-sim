@@ -1,5 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { classifyActions, damageAverageProblems, damageTypes, parseDamage, parseMultiattack, splitLimit } from './parseMonster';
+import {
+  classifyActions,
+  damageAverageProblems,
+  damageTypes,
+  parseDamage,
+  parseMultiattack,
+  parseUseLimit,
+  requiresTargetCondition,
+  splitLimit,
+} from './parseMonster';
 
 const classify = (entries: [string, string][]) => classifyActions(entries.map(([name, text]) => ({ name, text })), []);
 
@@ -9,6 +18,36 @@ describe('splitLimit', () => {
     expect(splitLimit('Misty Step (3/Day)')).toEqual({ base: 'Misty Step', limit: '3/Day' });
     expect(splitLimit('Claw')).toEqual({ base: 'Claw' });
     expect(splitLimit('Frightful Presence (Costs 2 Actions)')).toEqual({ base: 'Frightful Presence (Costs 2 Actions)' });
+  });
+});
+
+describe('parseUseLimit', () => {
+  it('reads recharge, per-day and rest limits', () => {
+    expect(parseUseLimit('Recharge 5-6')).toEqual({ kind: 'recharge', min: 5 });
+    expect(parseUseLimit('Recharge 6')).toEqual({ kind: 'recharge', min: 6 });
+    expect(parseUseLimit('3/Day')).toEqual({ kind: 'perDay', uses: 3 });
+    expect(parseUseLimit('Recharges after a Short or Long Rest')).toEqual({ kind: 'perDay', uses: 1 });
+  });
+
+  it('returns undefined for limits it does not understand', () => {
+    expect(parseUseLimit('1/Day; Requires Soul Bag')).toBeUndefined();
+    expect(parseUseLimit('Costs 2 Actions')).toBeUndefined();
+  });
+});
+
+describe('requiresTargetCondition', () => {
+  it('spots actions that need a prone or grappled target', () => {
+    expect(requiresTargetCondition('Dexterity Saving Throw: DC 16, one creature within 5 feet that has the Prone condition. Failure: 17 (2d10 + 6) Bludgeoning damage.')).toBe(true);
+    expect(requiresTargetCondition('Dexterity Saving Throw: DC 18, one Large or smaller creature Grappled by the behir. Failure: swallowed')).toBe(true);
+  });
+
+  it('ignores optional conditions in parentheses', () => {
+    expect(requiresTargetCondition('Melee Attack Roll: +5 (with Advantage if the target is Grappled by the ankheg), reach 5 ft. Hit: 10 (2d6 + 3) Slashing damage.')).toBe(false);
+  });
+
+  it('ignores conditions that are only inflicted', () => {
+    expect(requiresTargetCondition('Melee Attack Roll: +4, reach 5 ft. Hit: 5 (1d6 + 2) Piercing damage. The target has the Prone condition.')).toBe(false);
+    expect(requiresTargetCondition('Strength Saving Throw: DC 14. Failure: 7 (1d6 + 4) Bludgeoning damage, and the target has the Prone condition.')).toBe(false);
   });
 });
 
@@ -122,7 +161,7 @@ describe('classifyActions', () => {
         kind: 'save',
         name: 'Fire Breath',
         area: true,
-        limit: 'Recharge 5-6',
+        limit: { kind: 'recharge', min: 5 },
         save: { name: 'Fire Breath', ability: 'dex', dc: 21, halfOnSave: true, damage: [{ dice: '17d6', type: 'fire' }] },
       },
     ]);
@@ -142,6 +181,29 @@ describe('classifyActions', () => {
     ]);
     expect(r.actions).toEqual([]);
     expect(r.otherActions.map((f) => f.name)).toEqual(['Spellcasting', 'Frighten']);
+  });
+
+  it('flags bonus actions and keeps a multiattack out of the bonus slot', () => {
+    const r = classifyActions(
+      [
+        { name: 'Horror Nimbus (Recharge 5–6)', text: 'Wisdom Saving Throw: DC 15, each creature in a 15-foot Emanation. Failure: 28 (8d6) Psychic damage, and the target has the Frightened condition.' },
+        { name: 'Multiattack', text: 'The thing makes two Claw attacks.' },
+      ],
+      [],
+      { bonus: true },
+    );
+    expect(r.actions).toHaveLength(1);
+    expect(r.actions[0]).toMatchObject({ name: 'Horror Nimbus', bonus: true, limit: { kind: 'recharge', min: 5 } });
+    expect(r.multiattack).toBeUndefined();
+  });
+
+  it('leaves actions that need a prone target, or have an unknown limit, unsimulated', () => {
+    const r = classify([
+      ['Trample', 'Dexterity Saving Throw: DC 16, one creature within 5 feet that has the Prone condition. Failure: 17 (2d10 + 6) Bludgeoning damage. Success: Half damage.'],
+      ['Haunting (1/Day; Requires Soul Bag)', 'Wisdom Saving Throw: DC 15, one creature. Failure: 10 (3d6) Psychic damage.'],
+    ]);
+    expect(r.actions).toEqual([]);
+    expect(r.otherActions.map((f) => f.name)).toEqual(['Trample', 'Haunting (1/Day; Requires Soul Bag)']);
   });
 
   it('records the multiattack separately from the actions', () => {

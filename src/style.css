@@ -1,0 +1,264 @@
+:root {
+  --bg: #f6f5f1;
+  --card: #ffffff;
+  --text: #1e1e1c;
+  --muted: #6b6a64;
+  --line: #e2e0d8;
+  --accent: #2f5fd0;
+  --good: #2f8f4e;
+  --bad: #c0392b;
+  --warn: #b7791f;
+  color-scheme: light dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #161614;
+    --card: #1f1f1c;
+    --text: #ecebe6;
+    --muted: #9a998f;
+    --line: #34332e;
+    --accent: #7ba2ff;
+    --good: #5cc07c;
+    --bad: #ee7a6c;
+    --warn: #e0a84a;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 15px/1.5 system-ui, -apple-system, 'Segoe UI', sans-serif;
+}
+
+#app {
+  max-width: 980px;
+  margin: 0 auto;
+  padding: 24px 16px 48px;
+}
+
+h1 {
+  margin: 0;
+  font-size: 1.6rem;
+}
+
+h3 {
+  margin: 12px 0 6px;
+  font-size: 0.8rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.sub,
+.muted,
+.hint {
+  color: var(--muted);
+}
+
+.sub {
+  margin: 2px 0 16px;
+}
+
+.hint {
+  margin: 8px 0 0;
+  font-size: 0.85rem;
+}
+
+.card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 14px 16px;
+  margin-bottom: 14px;
+}
+
+.card[hidden] {
+  display: none;
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+input {
+  font: inherit;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 5px 8px;
+  margin-left: 6px;
+}
+
+input[type='number'] {
+  width: 90px;
+}
+
+button {
+  font: inherit;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 5px 12px;
+  cursor: pointer;
+}
+
+button:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+code {
+  background: var(--bg);
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+
+.controls {
+  margin-bottom: 12px;
+}
+
+.fight-grid {
+  display: grid;
+  grid-template-columns: 1fr 260px;
+  gap: 16px;
+}
+
+@media (max-width: 720px) {
+  .fight-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.log {
+  height: 380px;
+  overflow-y: auto;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 8px 10px;
+  background: var(--bg);
+}
+
+.event {
+  padding: 2px 0;
+}
+
+.event.round-start {
+  margin-top: 8px;
+  padding-top: 6px;
+  border-top: 1px solid var(--line);
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.event.initiative,
+.event.no-action {
+  color: var(--muted);
+}
+
+.event.heal {
+  color: var(--good);
+}
+
+.event.death-save {
+  color: var(--warn);
+}
+
+.event.end {
+  margin-top: 8px;
+  font-weight: 600;
+}
+
+.fighter {
+  margin-bottom: 8px;
+}
+
+.fighter-top {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.9rem;
+}
+
+.fighter.dead .fighter-top span:first-child {
+  text-decoration: line-through;
+}
+
+.fighter.down,
+.fighter.stable {
+  color: var(--warn);
+}
+
+.fighter.dead {
+  color: var(--muted);
+}
+
+.bar {
+  height: 6px;
+  background: var(--line);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.bar div {
+  height: 100%;
+  background: var(--good);
+}
+
+.fighter.down .bar div,
+.fighter.stable .bar div,
+.fighter.dead .bar div {
+  background: var(--bad);
+}
+
+.headline {
+  margin: 14px 0 10px;
+}
+
+.tables {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 16px;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+th,
+td {
+  text-align: left;
+  padding: 5px 8px;
+  border-bottom: 1px solid var(--line);
+}
+
+th {
+  font-size: 0.8rem;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}

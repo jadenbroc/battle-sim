@@ -1,5 +1,7 @@
 import type { FightConfig } from './engine/fight';
 import type { Action, Combatant, HealAction, TargetProfile, Team } from './engine/types';
+import type { SpellDef } from './data/spellTypes';
+import { spellsToActions, type CasterContext } from './data/spells';
 
 interface Spec {
   id: string;
@@ -41,8 +43,16 @@ function make(s: Spec): Combatant {
   };
 }
 
-/** Hardcoded demo party: a level-3-ish Fighter, Cleric and Wizard. */
-export function sampleParty(): Combatant[] {
+/** Spells the demo casters know, by spell id (a level 3 Cleric and Wizard). */
+const CLERIC_SPELLS = ['sacred-flame', 'guiding-bolt', 'cure-wounds', 'healing-word'];
+const WIZARD_SPELLS = ['fire-bolt', 'magic-missile', 'burning-hands', 'scorching-ray'];
+const CASTER: Omit<CasterContext, 'slotLevels'> = { characterLevel: 3, spellAttackBonus: 5, spellSaveDC: 13, spellModifier: 3 };
+
+/**
+ * Demo party: a level-3-ish Fighter, Cleric and Wizard. Pass the SRD spell library and the casters
+ * use real spells (damage, scaling and upcasting from the data); without it they use fixed numbers.
+ */
+export function sampleParty(spells?: readonly SpellDef[]): Combatant[] {
   const fighter = make({
     id: 'fighter',
     name: 'Fighter',
@@ -107,6 +117,17 @@ export function sampleParty(): Combatant[] {
       },
     ],
   });
+
+  if (spells) {
+    const pick = (ids: string[]): SpellDef[] => ids.flatMap((id) => spells.find((s) => s.id === id) ?? []);
+    const cast = (ids: string[]) => spellsToActions(pick(ids), { ...CASTER, slotLevels: [1, 2] });
+
+    const c = cast(CLERIC_SPELLS);
+    cleric.actions = [cleric.actions[0]!, ...c.actions]; // keeps the mace
+    cleric.heals = c.heals;
+
+    wizard.actions = cast(WIZARD_SPELLS).actions;
+  }
 
   return [fighter, cleric, wizard];
 }

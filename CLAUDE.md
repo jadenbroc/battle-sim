@@ -85,6 +85,22 @@ All 14 conditions plus Exhaustion levels follow the 2024 rules, read from the fi
 - Not yet: concentration, Surprised (a turn-order rule, not a condition), and the Incapacitated clause
   about speech.
 
+## Spell data (implemented)
+The bundled SRD 5.2.1 spell library (339 spells) lives in `src/data/srd-spells.json`, built by
+`npm run data:build`; see `docs/spell-format.md`. A spell stores what it does (attack, save, heal, the
+conditions it inflicts, and how it scales); the caster supplies the save DC, attack bonus and
+spellcasting modifier, which the PDF import will read from the character sheet.
+- 41 damaging spells and 5 healing spells are simulated. Spells with no effect (reactions, summons,
+  walls, zones such as Spirit Guardians, concentration spells used on later turns, smites, buffs on a
+  willing creature, spells with a menu of effects) carry a note saying why.
+- Higher slots scale damage, healing and the number of darts and rays; cantrips scale at character
+  levels 5, 11 and 17. Casters use the lowest slot that is available.
+- Magic Missile darts hit automatically (no attack roll, so no crit).
+- Small areas (15 feet or less, or a 5-foot sphere) hit at most 2 creatures; larger ones use the
+  fight's area-target setting.
+- Not yet: concentration (so concentration spells apply their initial effect only, and a caster may
+  have several going), extra targets from higher slots, and healing more than one creature.
+
 ## Later milestones
 1. Concentration.
 2. Weapon mastery properties.

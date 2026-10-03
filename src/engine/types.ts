@@ -112,6 +112,8 @@ export interface AttackOption {
   damage: DamageComponent[];
   /** Melee attacks count as within 5 feet of the target, ranged ones do not. Default melee. */
   range?: 'melee' | 'ranged';
+  /** Never misses and has no attack roll (Magic Missile's darts), so it cannot crit either. */
+  autoHit?: boolean;
   /** Conditions inflicted on a hit. */
   effects?: ConditionEffect[];
 }

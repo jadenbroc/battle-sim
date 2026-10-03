@@ -105,6 +105,10 @@ export function formatEvent(event: LogEvent): FormattedEvent {
     case 'attack': {
       const r = event.attackRoll;
       const dice = r.roll.rolls.length > 1 ? ` (${r.roll.rolls.join('/')}, ${event.mode})` : '';
+      if (event.autoHit) {
+        const dmg = event.damage.length ? damageText(event.damage) : '0';
+        return { kind, text: `${event.attacker}'s ${event.option} strikes ${event.target} automatically for ${dmg}.${dropNote(event.target, event.outcome)}${appliedNote(event.applied)}` };
+      }
       const head = `${event.attacker} attacks ${event.target} with ${event.option}: ${r.roll.total}${dice}`;
       if (!r.hit) return { kind, text: `${head}, miss.` };
       const dmg = event.damage.length ? damageText(event.damage) : '0';

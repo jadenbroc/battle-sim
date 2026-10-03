@@ -34,6 +34,11 @@ describe('replay', () => {
     }
   });
 
+  it('formats an automatic hit', () => {
+    const e = { kind: 'attack', attacker: 'Wizard', target: 'Goblin 1', option: 'Magic Missile', attackRoll: { roll: { natural: 0, rolls: [], modifier: 0, total: 0, isNat20: false, isNat1: false }, hit: true, crit: false }, mode: 'normal', autoHit: true, damage: [{ type: 'force', raw: 4, final: 4, effect: 'normal' }], totalDamage: 4, outcome: null, applied: [] } as const;
+    expect(formatEvent(e as never).text).toBe("Wizard's Magic Missile strikes Goblin 1 automatically for 4 force.");
+  });
+
   it('formats recharge rolls', () => {
     expect(formatEvent({ kind: 'recharge', actor: 'Dragon', option: 'Fire Breath', roll: 5, success: true }).text).toBe(
       'Dragon rolls to recharge Fire Breath: 5, recharged!',

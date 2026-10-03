@@ -137,7 +137,7 @@ export function parseConditionEffects(text: string, save?: SaveContext): Conditi
       }
       continue;
     }
-    if (/^While\b/i.test(sentence) || /swallow|possess|Total Cover|no longer|Hit Points or fewer|dies/i.test(sentence)) continue;
+    if (/^While\b/i.test(sentence) || /swallow|possess|Total Cover|no longer|Hit Points or fewer|dies|second save/i.test(sentence)) continue;
     if (!/\b(?:target|it|creature)\b/i.test(sentence)) continue;
 
     const size = /\bis (?:an? )?(Tiny|Small|Medium|Large|Huge|Gargantuan)(?: or smaller)?(?: creature)?/i.exec(sentence)?.[1];
@@ -160,6 +160,13 @@ export function parseConditionEffects(text: string, save?: SaveContext): Conditi
         });
       }
     });
+  }
+
+  // "...have the Paralyzed condition. At the end of each of its turns, the target repeats the save":
+  // the repeat is in a later sentence. With a single condition it clearly belongs to it.
+  const [only] = out;
+  if (out.length === 1 && only && !only.repeatSave && save && /\b(?:the target|it) repeats? the save\b/i.test(t)) {
+    only.repeatSave = save;
   }
   return out;
 }

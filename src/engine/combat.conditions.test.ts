@@ -70,6 +70,31 @@ describe('attacks and conditions', () => {
   });
 });
 
+describe('auto-hit attacks (Magic Missile darts)', () => {
+  const dart: AttackOption = { name: 'Magic Missile', toHit: 5, autoHit: true, range: 'ranged', damage: [{ dice: '1d4+1', type: 'force' }] };
+
+  it('hit without an attack roll, whatever the target\'s AC', () => {
+    const target = makeCreature({ ac: 40, hp: 100, maxHp: 100 });
+    const e = performAttack(scriptedRng([3]), makeCreature(), dart, target); // only a damage die is available
+    expect(e.autoHit).toBe(true);
+    expect(e.attackRoll).toMatchObject({ hit: true, crit: false });
+    expect(e.attackRoll.roll.rolls).toEqual([]);
+    expect(e.totalDamage).toBe(4); // 3 + 1
+    expect(e.mode).toBe('normal');
+  });
+
+  it('cannot crit, even against a Paralyzed target', () => {
+    const target = withCond(['paralyzed'], { hp: 100, maxHp: 100 });
+    const e = performAttack(scriptedRng([3]), makeCreature(), dart, target);
+    expect(e.attackRoll.crit).toBe(false);
+    expect(e.totalDamage).toBe(4);
+  });
+
+  it('ignore the attacker\'s own disadvantage', () => {
+    expect(performAttack(scriptedRng([2]), withCond(['poisoned', 'blinded']), dart, makeCreature({ hp: 100, maxHp: 100 })).mode).toBe('normal');
+  });
+});
+
 describe('saves and conditions', () => {
   it('Paralyzed, Stunned and Unconscious targets fail Dex saves without rolling', () => {
     for (const n of ['paralyzed', 'stunned', 'unconscious'] as const) {

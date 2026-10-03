@@ -49,6 +49,8 @@ export interface AttackEvent {
   attackRoll: AttackRollResult;
   /** Advantage or disadvantage in effect (from the caller and from conditions). */
   mode: RollMode;
+  /** The attack never misses and made no roll. */
+  autoHit: boolean;
   damage: AdjustedDamage[];
   totalDamage: number;
   outcome: DamageOutcome | null;
@@ -119,12 +121,23 @@ export function performAttack(
 ): AttackEvent {
   const melee = (option.range ?? 'melee') === 'melee';
   const cf = attackFlags(attacker, target, melee);
-  const mode = resolveMode(!!flags.advantage || cf.advantage, !!flags.disadvantage || cf.disadvantage);
+  const mode = option.autoHit ? 'normal' : resolveMode(!!flags.advantage || cf.advantage, !!flags.disadvantage || cf.disadvantage);
 
-  const rolled = rollAttack(rng, option.toHit - d20Penalty(attacker), target.ac, mode);
-  const crit = rolled.crit || (rolled.hit && isAutoCrit(target, melee));
+  // An auto-hit attack makes no roll: it hits, and with no attack roll it cannot crit.
+  const rolled: AttackRollResult = option.autoHit
+    ? { roll: { natural: 0, rolls: [], modifier: 0, total: 0, isNat20: false, isNat1: false }, hit: true, crit: false }
+    : rollAttack(rng, option.toHit - d20Penalty(attacker), target.ac, mode);
+  const crit = rolled.crit || (!option.autoHit && rolled.hit && isAutoCrit(target, melee));
   const attackRoll = { ...rolled, crit };
-  const base = { kind: 'attack' as const, attacker: attacker.name, target: target.name, option: option.name, attackRoll, mode };
+  const base = {
+    kind: 'attack' as const,
+    attacker: attacker.name,
+    target: target.name,
+    option: option.name,
+    attackRoll,
+    mode,
+    autoHit: !!option.autoHit,
+  };
   if (!attackRoll.hit) return { ...base, damage: [], totalDamage: 0, outcome: null, applied: [] };
 
   const { parts, total } = adjustAll(rollDamage(rng, option.damage, { crit }), defensesOf(target));

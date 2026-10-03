@@ -49,6 +49,7 @@ function attackMode(a: AttackOption, target: Creature, attacker?: Creature): Rol
 
 /** Chance an attack hits (a natural 20 always hits, a natural 1 always misses). */
 export function attackHitChance(a: AttackOption, target: Creature, attacker?: Creature): number {
+  if (a.autoHit) return 1;
   const bonus = a.toHit - (attacker ? d20Penalty(attacker) : 0);
   return withMode(clamp((21 - (target.ac - bonus)) / 20, 0.05, 0.95), attackMode(a, target, attacker));
 }
@@ -61,7 +62,7 @@ export function expectedAttackDamage(a: AttackOption, target: Creature, attacker
   const melee = (a.range ?? 'melee') === 'melee';
   const pHit = attackHitChance(a, target, attacker);
   const mode = attackMode(a, target, attacker);
-  const pCrit = isAutoCrit(target, melee) ? pHit : withMode(0.05, mode);
+  const pCrit = a.autoHit ? 0 : isAutoCrit(target, melee) ? pHit : withMode(0.05, mode);
   let total = 0;
   for (const c of a.damage) {
     const expr = parseDice(c.dice);

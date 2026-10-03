@@ -15,6 +15,7 @@ import {
   searchMonsters,
   type GroupEntry,
 } from './data/monsters';
+import { loadSrdSpells } from './data/spells';
 import { sampleParty } from './sample';
 import { formatEvent, viewAt, type FighterView } from './ui/replay';
 
@@ -101,7 +102,7 @@ seedInput.value = Math.random().toString(36).slice(2, 8);
 const escapeHtml = (s: string): string =>
   s.replace(/[&<>"]/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[ch]!);
 
-const party = sampleParty();
+let party = sampleParty(); // replaced by a party with real SRD spells once those load
 let library: MonsterDef[] = [];
 let group: GroupEntry[] = [{ id: 'goblin-warrior', count: 4 }];
 let config: FightConfig = { combatants: party };
@@ -330,9 +331,10 @@ $('bulk').addEventListener('click', () => {
 
 // ----- Start -----
 
-loadSrdMonsters().then(
-  (monsters) => {
+Promise.all([loadSrdMonsters(), loadSrdSpells()]).then(
+  ([monsters, spells]) => {
     library = monsters;
+    party = sampleParty(spells);
     $<HTMLSelectElement>('type').innerHTML =
       '<option value="">All types</option>' + monsterTypes(library).map((t) => `<option value="${t}">${t}</option>`).join('');
     renderMonsterList();

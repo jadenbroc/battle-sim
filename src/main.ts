@@ -212,9 +212,11 @@ function renderStatus(views: FighterView[]): string {
       .map((v) => {
         const pct = Math.max(0, Math.round((v.hp / v.maxHp) * 100));
         const tag = v.status === 'alive' ? '' : v.status;
+        const chips = v.conditions.map((c) => `<span class="chip ${escapeHtml(c)}">${escapeHtml(c)}</span>`).join('');
         return `<div class="fighter ${v.status}">
           <div class="fighter-top"><span>${escapeHtml(v.name)}</span><span>${v.hp}/${v.maxHp} ${tag}</span></div>
           <div class="bar"><div style="width:${pct}%"></div></div>
+          ${chips ? `<div class="chips">${chips}</div>` : ''}
         </div>`;
       })
       .join('')}`;

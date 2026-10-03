@@ -1,4 +1,4 @@
-import { attackFlags, cannotTarget, d20Penalty, defensesOf, hasCondition, isAutoCrit, saveFlags, sizeAtMost } from './conditions';
+import { attackFlags, cannotTarget, d20Penalty, defensesOf, hasCondition, isAutoCrit, saveFlags } from './conditions';
 import { averageDice, parseDice, resolveMode, type RollMode } from './dice';
 import type { Rng } from './rng';
 import {
@@ -9,8 +9,6 @@ import {
   type AttackAction,
   type AttackOption,
   type Combatant,
-  type ConditionEffect,
-  type ConditionName,
   type Creature,
   type Defenses,
   type DamageType,
@@ -89,45 +87,6 @@ export function expectedSaveDamage(s: SaveOption, target: Creature): number {
   let full = 0;
   for (const c of s.damage) full += Math.max(0, averageDice(c.dice)) * factor(c.type, defensesOf(target));
   return (1 - pSave) * full + (s.halfOnSave ? (pSave * full) / 2 : 0);
-}
-
-/**
- * Rough worth of a condition, as a share of the attacker's damage per round: the more it
- * disables the target, the closer to a full round of damage. A tunable heuristic, so that a
- * Paralyzing touch or a Frightening moan counts for something next to raw damage.
- */
-export const CONDITION_WEIGHT: Record<ConditionName, number> = {
-  paralyzed: 1,
-  stunned: 1,
-  unconscious: 1,
-  petrified: 1,
-  incapacitated: 0.9,
-  restrained: 0.5,
-  blinded: 0.5,
-  frightened: 0.4,
-  charmed: 0.4,
-  grappled: 0.25,
-  prone: 0.2,
-  poisoned: 0.2,
-  deafened: 0,
-  invisible: 0,
-};
-
-/** Expected extra worth of the conditions an effect would inflict, given the chance it lands. */
-export function effectsValue(
-  effects: readonly ConditionEffect[] | undefined,
-  target: Creature,
-  pLands: number,
-  dpr: number,
-): number {
-  let value = 0;
-  for (const e of effects ?? []) {
-    if (hasCondition(target, e.condition) || target.conditionImmunities?.includes(e.condition)) continue;
-    if (e.maxSize && !sizeAtMost(target.size, e.maxSize)) continue;
-    const avoid = e.avoidSave ? saveFailChance(target, e.avoidSave.ability, e.avoidSave.dc) : 1;
-    value += pLands * avoid * CONDITION_WEIGHT[e.condition] * dpr;
-  }
-  return value;
 }
 
 /** Damage per round from the stat block alone (ignores the target's AC and saves). */
@@ -226,26 +185,18 @@ function planHeal(actor: Combatant, allies: readonly Combatant[], slot: Slot): P
   return { kind: 'heal', action, target };
 }
 
-/** Expected damage plus the rough worth of the conditions the action would inflict. */
+/**
+ * Expected damage of an action against its targets, counting both creatures' conditions
+ * (advantage, automatic crits, exhaustion). The conditions an action would inflict are not scored:
+ * they still apply when the action is used, but choosing a weaker attack for the chance of a
+ * condition made monsters worse in testing (a Ghoul that claws for paralysis instead of biting).
+ */
 function expectedFor(action: Action, targets: readonly Combatant[], primary: Combatant, actor: Combatant): number {
-  const dpr = estimateDpr(actor);
   if (action.kind === 'attack') {
-    return attackSequence(action).reduce(
-      (sum, a) =>
-        sum +
-        expectedAttackDamage(a, primary.creature, actor.creature) +
-        effectsValue(a.effects, primary.creature, attackHitChance(a, primary.creature, actor.creature), dpr),
-      0,
-    );
+    return attackSequence(action).reduce((sum, a) => sum + expectedAttackDamage(a, primary.creature, actor.creature), 0);
   }
   const hit = action.area ? targets : [primary];
-  return hit.reduce(
-    (sum, t) =>
-      sum +
-      expectedSaveDamage(action.save, t.creature) +
-      effectsValue(action.save.effects, t.creature, saveFailChance(t.creature, action.save.ability, action.save.dc), dpr),
-    0,
-  );
+  return hit.reduce((sum, t) => sum + expectedSaveDamage(action.save, t.creature), 0);
 }
 
 /**

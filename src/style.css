@@ -387,3 +387,47 @@ select {
 .attribution a {
   color: var(--accent);
 }
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 3px;
+}
+
+.chip {
+  font-size: 0.7rem;
+  line-height: 1;
+  padding: 2px 6px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  color: var(--muted);
+  text-transform: capitalize;
+}
+
+.chip.paralyzed,
+.chip.stunned,
+.chip.petrified,
+.chip.incapacitated,
+.chip.unconscious {
+  color: var(--bad);
+  border-color: var(--bad);
+}
+
+.chip.restrained,
+.chip.grappled,
+.chip.blinded,
+.chip.frightened,
+.chip.charmed,
+.chip.poisoned,
+.chip.prone {
+  color: var(--warn);
+  border-color: var(--warn);
+}
+
+.event.condition-end,
+.event.repeat-save,
+.event.escape,
+.event.skip {
+  color: var(--muted);
+}

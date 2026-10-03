@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { runFight } from './fight';
 import { createRng } from './rng';
-import { CONDITION_WEIGHT, effectsValue, expectedAttackDamage, planTurn } from './tactics';
+import { expectedAttackDamage, planTurn } from './tactics';
 import { makeCombatant, makeCreature, scriptedRng } from './testUtil';
 import type { Action, ActiveCondition, Combatant, ConditionName, Creature } from './types';
 
@@ -58,35 +58,19 @@ describe('actions that need a target in some condition', () => {
   });
 });
 
-describe('condition worth in action choice', () => {
-  it('scores a disabling condition higher than a minor one', () => {
-    expect(CONDITION_WEIGHT.paralyzed).toBeGreaterThan(CONDITION_WEIGHT.restrained);
-    expect(CONDITION_WEIGHT.restrained).toBeGreaterThan(CONDITION_WEIGHT.prone);
-    expect(CONDITION_WEIGHT.deafened).toBe(0);
-  });
-
-  it('values a condition by how likely it lands and skips ones already present or immune', () => {
-    const target = makeCreature();
-    const fx = [{ condition: 'paralyzed' as const, duration: { kind: 'indefinite' as const } }];
-    expect(effectsValue(fx, target, 1, 10)).toBe(10);
-    expect(effectsValue(fx, target, 0.5, 10)).toBe(5);
-    expect(effectsValue(fx, withCond(['paralyzed']), 1, 10)).toBe(0);
-    expect(effectsValue(fx, makeCreature({ conditionImmunities: ['paralyzed'] }), 1, 10)).toBe(0);
-    expect(effectsValue([{ ...fx[0]!, maxSize: 'medium' }], makeCreature({ size: 'huge' }), 1, 10)).toBe(0);
-  });
-
-  it('prefers a paralyzing attack over a slightly stronger plain one', () => {
+describe('action choice and conditions', () => {
+  it('chooses by expected damage, not by the conditions an action would inflict', () => {
+    // Simulation showed that a Ghoul clawing for paralysis instead of biting plays worse.
     const ghoul = makeCombatant('ghoul', 'enemies');
     const claw: Action = {
       kind: 'attack',
       name: 'Claw',
-      attack: { name: 'Claw', toHit: 5, damage: [{ dice: '2d4+2', type: 'slashing' }], effects: [{ condition: 'paralyzed', duration: { kind: 'endOfTargetNextTurn' } }] },
+      attack: { name: 'Claw', toHit: 5, damage: [{ dice: '1d4+2', type: 'slashing' }], effects: [{ condition: 'paralyzed', duration: { kind: 'endOfTargetNextTurn' } }] },
     };
     const bite: Action = { kind: 'attack', name: 'Bite', attack: { name: 'Bite', toHit: 5, damage: [{ dice: '2d6+3', type: 'piercing' }] } };
-    ghoul.actions = [bite, claw];
-    const hero = makeCombatant('hero', 'party');
-    const plan = planTurn(ghoul, [ghoul, hero], scriptedRng([]), 3);
-    expect(plan?.kind === 'attack' && plan.action.name).toBe('Claw');
+    ghoul.actions = [claw, bite];
+    const plan = planTurn(ghoul, [ghoul, makeCombatant('hero', 'party')], scriptedRng([]), 3);
+    expect(plan?.kind === 'attack' && plan.action.name).toBe('Bite');
   });
 
   it('expected damage reflects advantage against a prone target', () => {

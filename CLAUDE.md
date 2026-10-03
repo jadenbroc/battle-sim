@@ -66,8 +66,27 @@ Each creature's turn has two separate decisions: which action, then which target
 - Weapon attacks and basic damage spells, with spell slots.
 - Bulk win-rate output plus a step-through log.
 
+## Conditions (implemented)
+All 14 conditions plus Exhaustion levels follow the 2024 rules, read from the filed rules in
+`_shared\knowledge\conditions\`. Rulings for a fight with no grid:
+- **Within 5 feet** is decided by attack type: melee attacks are, ranged attacks are not. So a Prone
+  target gives melee attackers advantage and ranged attackers disadvantage, and a melee hit on a
+  Paralyzed or Unconscious target is a critical hit.
+- A Frightened creature's source of fear is assumed to be in line of sight. Movement effects (Speed 0,
+  being dragged) have no effect. A Prone creature stands up at the start of its turn unless it is
+  Grappled, Restrained, Paralyzed, Petrified or Unconscious.
+- A character at 0 HP counts as Unconscious (attacks against it have advantage, melee hits crit).
+- A creature that is Restrained by a grapple spends its action trying to escape (best of Str/Dex
+  modifier against the escape DC). A merely Grappled creature fights on, with disadvantage against
+  anyone but the grappler. A grapple ends when the grappler is incapacitated or dead.
+- Action choice stays "highest expected damage" (now counting advantage, automatic crits and
+  exhaustion). Conditions an action inflicts are not scored: testing showed that preferring a weaker
+  attack for the chance of a condition makes monsters worse.
+- Not yet: concentration, Surprised (a turn-order rule, not a condition), and the Incapacitated clause
+  about speech.
+
 ## Later milestones
-1. Conditions (all 15), concentration.
+1. Concentration.
 2. Weapon mastery properties.
 3. Reactions, legendary actions, recharge abilities.
 4. More tactics profiles, shareable fight setups via URL.

@@ -49,16 +49,39 @@ recharge ability:
   are no rests inside a fight; "Recharges after a Short or Long Rest" is 1 use).
 - `bonus: true` puts the action in the bonus action slot. A creature takes one action and one bonus
   action per turn.
+- `attack.range: "ranged"` marks ranged attacks (default melee). Melee attacks count as within 5 feet
+  of the target, which matters for Prone targets and for automatic crits.
+- `attack.effects` / `save.effects` list the conditions inflicted on a hit / a failed save:
+
+  ```json
+  { "condition": "grappled", "duration": { "kind": "indefinite" }, "maxSize": "large", "escapeDc": 14 }
+  { "condition": "poisoned", "duration": { "kind": "endOfTargetNextTurn" }, "avoidSave": { "ability": "con", "dc": 12 } }
+  { "condition": "frightened", "duration": { "kind": "endOfSourceNextTurn" }, "repeatSave": { "ability": "wis", "dc": 13 } }
+  { "condition": "restrained", "duration": { "kind": "while", "condition": "grappled" } }
+  ```
+
+  `condition` is one of the 14 conditions (lowercase). `duration.kind` is `indefinite`,
+  `endOfTargetNextTurn`, `startOfSourceNextTurn`, `endOfSourceNextTurn`, `rounds` (with `n`; 1 minute
+  is 10 rounds), or `while` (lasts while another condition from the same source does). `maxSize`
+  limits the effect to creatures of that size or smaller, `avoidSave` lets the target save to avoid
+  it, `repeatSave` lets it repeat the save at the end of each of its turns, and `escapeDc` is a
+  grapple's escape DC.
+- `targetRequires` names a condition the target must already have (`"prone"` for Trample): the action
+  is only used on such targets.
 - A Multiattack is simulated when every `parts[].action` names an unlimited, non-bonus attack in
   `actions`. Mixed attacks (two Claw, one Bite) run in the order listed; "two attacks, using A or B in
   any combination" uses whichever option has the higher average damage.
-- Actions that only work on a target in some condition (a Prone target, a Grappled one) are not
-  simulated, since conditions are not tracked yet; they stay in `otherActions` / `bonusActions` as text.
+- Swallow, Engulf and possession-style actions are not simulated (they change a creature's whole
+  state); they stay in `otherActions` / `bonusActions` as text. So do staged effects ("First Failure",
+  "Failure by 5 or More") and outcomes that depend on the target's hit points.
+- A condition-only action (no damage, such as a Cloaker's Moan) is parsed but never chosen: monsters
+  pick the action with the highest expected damage, because choosing a weaker attack for the chance
+  of a condition made monsters worse in testing.
 
 ## What the engine does not simulate yet
 
 Traits (Pack Tactics, Nimble Escape), reactions, legendary actions and lair actions, spellcasting,
-conditions, and effects that are not damage (grapples, frightened, ...). The UI lists these per
+concentration, movement and positioning, and the effects listed above. The UI lists these per
 monster so the results are not mistaken for a full simulation.
 
 ## Where the SRD data comes from

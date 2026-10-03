@@ -1,4 +1,4 @@
-﻿node_modules
+node_modules
 dist
 *.local
 
@@ -9,3 +9,6 @@ test characters/
 data/private/
 public/private/
 *.private.json
+
+# Raw SRD fetch cache (re-create with: npm run data:fetch)
+data/srd-raw/

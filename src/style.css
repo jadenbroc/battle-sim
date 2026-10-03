@@ -262,3 +262,128 @@ th {
   text-align: right;
   font-variant-numeric: tabular-nums;
 }
+
+h2 {
+  margin: 0;
+  font-size: 1.1rem;
+}
+
+select {
+  font: inherit;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 5px 6px;
+}
+
+.row.between {
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.enemies-grid {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr;
+  gap: 16px;
+}
+
+@media (max-width: 720px) {
+  .enemies-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.filters {
+  margin-bottom: 8px;
+}
+
+.filters input {
+  margin-left: 0;
+  flex: 1 1 140px;
+  min-width: 0;
+}
+
+.list {
+  height: 300px;
+  overflow-y: auto;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg);
+}
+
+.mon {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--line);
+}
+
+.mon:last-child {
+  border-bottom: 0;
+}
+
+.mon .muted {
+  display: block;
+  font-size: 0.8rem;
+}
+
+#group .mon {
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  margin-bottom: 6px;
+}
+
+#group .mon .muted {
+  display: inline;
+}
+
+.qty {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.qty span {
+  min-width: 1.5em;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.mon button,
+.qty button {
+  padding: 2px 10px;
+}
+
+.warnings {
+  margin-top: 10px;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.warnings summary {
+  cursor: pointer;
+}
+
+.warnings ul {
+  margin: 2px 0 8px;
+  padding-left: 18px;
+}
+
+.warnings p {
+  margin: 8px 0 0;
+  color: var(--text);
+}
+
+.attribution {
+  margin-top: 24px;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.attribution a {
+  color: var(--accent);
+}

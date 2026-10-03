@@ -91,6 +91,13 @@ export interface AttackAction extends ActionBase {
   attack: AttackOption;
   /** Attacks made per action (Multiattack / Extra Attack). Default 1. */
   count?: number;
+  /** Mixed Multiattack (e.g. 2 Claw + 1 Bite): attacks made in order. Overrides `attack` and `count`. */
+  sequence?: AttackOption[];
+}
+
+/** The attacks an attack action makes, in order. */
+export function attackSequence(a: AttackAction): AttackOption[] {
+  return a.sequence ?? Array.from({ length: a.count ?? 1 }, () => a.attack);
 }
 
 export interface SaveAction extends ActionBase {

@@ -41,8 +41,8 @@ function make(s: Spec): Combatant {
   };
 }
 
-/** Hardcoded demo: a level-3-ish party against four goblins. */
-export function sampleFight(goblins = 4): FightConfig {
+/** Hardcoded demo party: a level-3-ish Fighter, Cleric and Wizard. */
+export function sampleParty(): Combatant[] {
   const fighter = make({
     id: 'fighter',
     name: 'Fighter',
@@ -108,6 +108,11 @@ export function sampleFight(goblins = 4): FightConfig {
     ],
   });
 
+  return [fighter, cleric, wizard];
+}
+
+/** Hardcoded demo: the sample party against hand-built goblins (used by tests). */
+export function sampleFight(goblins = 4): FightConfig {
   const gobs = Array.from({ length: goblins }, (_, i) =>
     make({
       id: `goblin${i + 1}`,
@@ -123,5 +128,5 @@ export function sampleFight(goblins = 4): FightConfig {
     }),
   );
 
-  return { combatants: [fighter, cleric, wizard, ...gobs] };
+  return { combatants: [...sampleParty(), ...gobs] };
 }

@@ -1,6 +1,7 @@
 import { averageDice, parseDice } from './dice';
 import type { Rng } from './rng';
 import {
+  attackSequence,
   saveModifier,
   type Action,
   type AttackAction,
@@ -54,10 +55,11 @@ export function expectedSaveDamage(s: SaveOption, target: Creature): number {
 /** Damage per round from the stat block alone (ignores the target's AC and saves). */
 export function estimateDpr(c: Combatant): number {
   let best = 0;
+  const avgOf = (parts: readonly { dice: string }[]): number =>
+    parts.reduce((sum, p) => sum + Math.max(0, averageDice(p.dice)), 0);
   for (const a of c.actions) {
-    const parts = a.kind === 'attack' ? a.attack.damage : a.save.damage;
-    const avg = parts.reduce((sum, p) => sum + Math.max(0, averageDice(p.dice)), 0);
-    best = Math.max(best, a.kind === 'attack' ? avg * (a.count ?? 1) : avg);
+    const total = a.kind === 'attack' ? attackSequence(a).reduce((sum, o) => sum + avgOf(o.damage), 0) : avgOf(a.save.damage);
+    best = Math.max(best, total);
   }
   return best;
 }
@@ -126,7 +128,9 @@ function planHeal(actor: Combatant, allies: readonly Combatant[]): Plan | null {
 }
 
 function expectedFor(action: Action, targets: readonly Combatant[], primary: Combatant): number {
-  if (action.kind === 'attack') return expectedAttackDamage(action.attack, primary.creature) * (action.count ?? 1);
+  if (action.kind === 'attack') {
+    return attackSequence(action).reduce((sum, a) => sum + expectedAttackDamage(a, primary.creature), 0);
+  }
   if (!action.area) return expectedSaveDamage(action.save, primary.creature);
   return targets.reduce((sum, t) => sum + expectedSaveDamage(action.save, t.creature), 0);
 }

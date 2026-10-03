@@ -4,7 +4,7 @@ import { rollDice } from './dice';
 import { heal, rollDeathSave, type DeathSaveResult } from './hp';
 import type { Rng } from './rng';
 import { chooseTarget, planTurn, validTargets, type Plan } from './tactics';
-import { abilityMod, type Action, type Combatant } from './types';
+import { abilityMod, attackSequence, type Action, type Combatant } from './types';
 
 export interface FightOptions {
   /** Max enemies an area spell hits when there is no grid. */
@@ -143,11 +143,12 @@ export function runFight(config: FightConfig, rng: Rng, opts: { log?: boolean } 
 
     spendSlot(actor, plan.action);
     const enemies = fighters.filter((f) => f.team !== actor.team);
-    for (let i = 0; i < (plan.action.count ?? 1); i++) {
+    const attacks = attackSequence(plan.action);
+    for (let i = 0; i < attacks.length; i++) {
       if (checkEnd(fighters)) break;
       const target = i === 0 ? plan.target : chooseTarget(actor.profile, validTargets(enemies), rng);
       if (!target) break;
-      const e = performAttack(rng, actor.creature, plan.action.attack, target.creature);
+      const e = performAttack(rng, actor.creature, attacks[i]!, target.creature);
       addDamage(actor, e.totalDamage);
       push(round, e);
     }

@@ -5,7 +5,7 @@ import { createRng } from '../engine/rng';
 import { makeCombatant } from '../engine/testUtil';
 import { isConditionName, isDamageType, type Action, type Combatant } from '../engine/types';
 import type { SpellDef } from './spellTypes';
-import { CANTRIP_TIERS, addDice, areaMaxTargets, cantripTier, loadSrdSpells, searchSpells, spellToActions, spellsToActions, type CasterContext } from './spells';
+import { CANTRIP_TIERS, addDice, areaMaxTargets, cantripTier, loadBookSpells, loadSrdSpells, searchSpells, spellToActions, spellsToActions, type CasterContext } from './spells';
 
 let lib: SpellDef[];
 const get = (id: string): SpellDef => {
@@ -292,5 +292,16 @@ describe('spells in a fight', () => {
       const r = runFight({ combatants: [w, ally, target()], options: { roundCap: 3 } }, createRng(s.id), { log: true });
       expect(r.log.length, s.name).toBeGreaterThan(1);
     }
+  });
+});
+
+describe('book spells', () => {
+  it('are bundled, simulated where possible, and do not duplicate the SRD', async () => {
+    const book = await loadBookSpells();
+    const srd = await loadSrdSpells();
+    expect(book.length).toBeGreaterThan(200);
+    expect(book.find((s) => s.id === 'toll-the-dead')?.effect?.kind).toBe('save');
+    const ids = new Set(srd.map((s) => s.id));
+    expect(book.filter((s) => ids.has(s.id))).toEqual([]);
   });
 });

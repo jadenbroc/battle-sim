@@ -8,6 +8,12 @@ export async function loadSrdSpells(): Promise<SpellDef[]> {
   return mod.default as unknown as SpellDef[];
 }
 
+/** Loads the bundled spells from the author's own books (not in the SRD), split into its own chunk. */
+export async function loadBookSpells(): Promise<SpellDef[]> {
+  const mod = await import('./book-spells.json');
+  return mod.default as unknown as SpellDef[];
+}
+
 // ----- Search and filter -----
 
 export interface SpellFilter {

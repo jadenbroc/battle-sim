@@ -151,6 +151,14 @@ const data: PrivateData = {
 mkdirSync(outDir, { recursive: true });
 writeFileSync(join(outDir, 'private-data.json'), JSON.stringify(data) + '\n', 'utf8');
 
+// `--bundle-spells` also writes the spells to src/data/book-spells.json, which IS committed and shipped
+// as part of the default spell list (a deliberate decision: see "Data and licensing" in CLAUDE.md).
+if (process.argv.includes('--bundle-spells')) {
+  const bundled = spells.map(({ private: _private, ...rest }) => rest);
+  writeFileSync(join(root, 'src', 'data', 'book-spells.json'), JSON.stringify(bundled) + '\n', 'utf8');
+  console.log(`Bundled ${bundled.length} spells into src/data/book-spells.json`);
+}
+
 const simulated = spells.filter((s) => s.effect);
 console.log(`Read ${all.length} spells from ${spellDir}`);
 console.log(`Wrote ${spells.length} that are not in the SRD library (${simulated.length} with a simulated effect) to ${join(outDir, 'private-data.json')}`);

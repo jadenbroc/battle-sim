@@ -22,7 +22,7 @@ import { characterToCombatant } from './character/toCombatant';
 import type { SpellDef } from './data/spellTypes';
 import { mergeMonsters, mergeSpells, parsePrivateData, type PrivateData } from './data/privateData';
 import { clearStoredPrivateData, fetchDevPrivateData, loadStoredPrivateData, saveStoredPrivateData } from './data/privateStore';
-import { loadSrdSpells } from './data/spells';
+import { loadBookSpells, loadSrdSpells } from './data/spells';
 import type { Combatant } from './engine/types';
 import { sampleParty } from './sample';
 import { createPartyPanel } from './ui/partyPanel';
@@ -112,7 +112,7 @@ app.innerHTML = `
   <footer class="attribution">
     This work includes material from the System Reference Document 5.2.1 (&ldquo;SRD 5.2.1&rdquo;) by Wizards of the Coast LLC,
     available at <a href="https://www.dndbeyond.com/srd" target="_blank" rel="noopener">dndbeyond.com/srd</a>.
-    The SRD 5.2.1 is licensed under the
+    Additional spells are from the site author's own rulebooks; they are not part of the SRD and remain the property of their owners. The SRD 5.2.1 is licensed under the
     <a href="https://creativecommons.org/licenses/by/4.0/legalcode" target="_blank" rel="noopener">Creative Commons Attribution 4.0 International License</a>.
   </footer>
 `;
@@ -408,10 +408,11 @@ $('private-remove').addEventListener('click', () => {
 
 // ----- Start -----
 
-Promise.all([loadSrdMonsters(), loadSrdSpells()]).then(
-  async ([monsters, loadedSpells]) => {
+Promise.all([loadSrdMonsters(), loadSrdSpells(), loadBookSpells()]).then(
+  async ([monsters, srdLoaded, bookLoaded]) => {
     srdMonsters = monsters;
-    srdSpells = loadedSpells;
+    // The default spell list: the SRD plus the bundled book spells (the SRD copy wins on overlap).
+    srdSpells = [...srdLoaded, ...bookLoaded.filter((b) => !srdLoaded.some((s) => s.id === b.id))].sort((a, b) => a.level - b.level || a.name.localeCompare(b.name));
     spells = srdSpells;
     library = srdMonsters;
     // Dev server file first (it is the freshest build), then what was loaded into this browser.

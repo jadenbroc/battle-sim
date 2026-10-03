@@ -108,8 +108,8 @@ spellcasting modifier, which the PDF import will read from the character sheet.
 4. More tactics profiles, shareable fight setups via URL.
 
 ## Data and licensing
-- Bundled content: **SRD 5.2 only** (CC-BY 4.0, with required attribution in the site footer).
-- No books-you-own content (D&D Beyond) is shipped, since the site is public.
+- **Source of truth: dndbeyond.com.** All game content (spells, monsters, classes, conditions, weapon mastery) comes from D&D Beyond, following the 2024 rules. The author's library in `C:\AI Ecosystem\_shared\knowledge\` is built from D&D Beyond pages by the library skills (for example each spell file cites its D&D Beyond page), and the simulator reads that library. The private build writes only entries missing from the SRD bundle; where both have an entry, the SRD copy wins and the build reports any differences as a check.
+- **Two layers:** the public site bundles only the **SRD 5.2.1** subset (CC-BY 4.0, with required attribution in the site footer), because the hosted site is public and cannot republish book content from D&D Beyond. The author's full library is loaded privately (see below) and never deployed. A spell "not in the SRD library" means it is missing from the public bundle, not that D&D Beyond lacks it.
 - Users can **import their own data** (JSON, plus a documented format) for characters, monsters, spells, and items. Imported data stays in the user's browser.
 - **Character import from D&D Beyond PDF:** users upload the character sheet PDF exported from D&D Beyond (e.g. `{character}.pdf`). Parsing happens entirely in the browser (pdf.js, reading the sheet's fillable form fields; see "PDF format findings" below), so no file is ever uploaded to a server.
   - Up to **8 characters** can be loaded at once (the party cap).
@@ -137,7 +137,7 @@ Test files live in `projects\battle-sim\test characters\`: Lady Moonfire (Cleric
 - Class features and species traits as names with description text, for display on the review screen.
 
 **Not in the PDF (must come from elsewhere)**
-- **Spell damage, healing, scaling and effects.** Only the name and save/attack type are listed. Damage dice and upcast scaling come from the bundled SRD spell data, matched by name. Spells not in the data (for example the homebrew or other-book spells in these samples) are listed on the review screen for the user to fill in, or are skipped by the engine with a visible warning.
+- **Spell damage, healing, scaling and effects.** Only the name and save/attack type are listed. Damage dice and upcast scaling come from the spell data, matched by name: the bundled SRD spells, plus the author's private library (built from D&D Beyond) when loaded. Spells in neither (for example Toll the Dead, Word of Radiance and Mind Sliver in these samples are in the author's library but not the SRD) are listed on the review screen, or are skipped by the engine with a visible warning, until private data is loaded.
 - Class feature mechanics (Divine Smite, Lay on Hands, Channel Divinity). Out of scope for Milestone 1: they are read as names only.
 - Current HP is blank in all four sheets. The parser assumes full HP.
 
@@ -177,8 +177,9 @@ and export (`docs/character-format.md`).
 - Extra Attack is inferred from the features text (2 attacks, 3 for a Fighter 11, 4 for a Fighter 20)
   and flagged for checking.
 - Spells that list a save or an attack bonus but are not in the SRD library (Toll the Dead, Mind
-  Sliver, ...) are reported on the review screen and are not simulated. Private spell data from the
-  author's own library is a possible next step.
+  Sliver, ...) are reported on the review screen and are not simulated unless private data is loaded
+  (`npm run data:private`, then "Load private data"; see `docs/private-data.md`), which supplies them
+  from the author's D&D Beyond-sourced library.
 - Not simulated: class feature mechanics (Divine Smite, Lay on Hands, Channel Divinity), weapon
   mastery, and any spell the SRD library lacks.
 
@@ -186,7 +187,8 @@ and export (`docs/character-format.md`).
 - PDF parser: still missing sample sheets with a martial character that has Extra Attack and two
   weapons, and one with damage vulnerabilities, so those cases are only tested with synthetic sheets.
   D&D Beyond can change its PDF layout; an unreadable sheet falls back to the manual form.
-- Spells and class features that are not in the SRD (the author's own books) need a private data path.
+- Private data: the path exists (`npm run data:private`). Still to confirm: that the four sample sheets' non-SRD spells (Toll the Dead, Word of Radiance, Thunderclap, Mind Sliver, Infestation, Wither and Bloom, Witch Bolt, the smites, and others) all resolve with a simulated effect once it is loaded, and that the spell library stays the single place new spells are filed.
+- Class features that are not in the SRD (the author's own books) still have no data path.
 - Project name.
 
 ## Handoff to Claude Code

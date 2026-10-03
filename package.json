@@ -11,7 +11,8 @@
     "test:watch": "vitest",
     "data:fetch": "node scripts/fetch-srd-monsters.mjs",
     "data:build": "tsx scripts/build-monsters.ts && tsx scripts/build-spells.ts",
-    "data:private": "tsx scripts/build-private.ts"
+    "data:private": "tsx scripts/build-private.ts",
+    "data:book-spells": "tsx scripts/build-private.ts --bundle-spells"
   },
   "devDependencies": {
     "@types/node": "^26.6.4",

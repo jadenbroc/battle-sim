@@ -9,6 +9,7 @@ import {
   adjustGroup,
   buildEnemyGroup,
   groupSize,
+  loadBookMonsters,
   loadSrdMonsters,
   monsterTypes,
   notSimulated,
@@ -112,7 +113,7 @@ app.innerHTML = `
   <footer class="attribution">
     This work includes material from the System Reference Document 5.2.1 (&ldquo;SRD 5.2.1&rdquo;) by Wizards of the Coast LLC,
     available at <a href="https://www.dndbeyond.com/srd" target="_blank" rel="noopener">dndbeyond.com/srd</a>.
-    Additional spells are from the site author's own rulebooks; they are not part of the SRD and remain the property of their owners. The SRD 5.2.1 is licensed under the
+    Additional spells and monsters are from the site author's own rulebooks; they are not part of the SRD and remain the property of their owners. The SRD 5.2.1 is licensed under the
     <a href="https://creativecommons.org/licenses/by/4.0/legalcode" target="_blank" rel="noopener">Creative Commons Attribution 4.0 International License</a>.
   </footer>
 `;
@@ -408,9 +409,9 @@ $('private-remove').addEventListener('click', () => {
 
 // ----- Start -----
 
-Promise.all([loadSrdMonsters(), loadSrdSpells(), loadBookSpells()]).then(
-  async ([monsters, srdLoaded, bookLoaded]) => {
-    srdMonsters = monsters;
+Promise.all([loadSrdMonsters(), loadBookMonsters(), loadSrdSpells(), loadBookSpells()]).then(
+  async ([monsters, bookMonsters, srdLoaded, bookLoaded]) => {
+    srdMonsters = mergeMonsters(monsters, bookMonsters).map(({ private: _private, ...m }) => m);
     // The default spell list: the SRD plus the bundled book spells (the SRD copy wins on overlap).
     srdSpells = [...srdLoaded, ...bookLoaded.filter((b) => !srdLoaded.some((s) => s.id === b.id))].sort((a, b) => a.level - b.level || a.name.localeCompare(b.name));
     spells = srdSpells;

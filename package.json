@@ -12,7 +12,8 @@
     "data:fetch": "node scripts/fetch-srd-monsters.mjs",
     "data:build": "tsx scripts/build-monsters.ts && tsx scripts/build-spells.ts",
     "data:private": "tsx scripts/build-private.ts",
-    "data:book-spells": "tsx scripts/build-private.ts --bundle-spells"
+    "data:book-spells": "tsx scripts/build-private.ts --bundle-spells",
+    "data:book": "tsx scripts/build-private.ts --bundle-spells --bundle-monsters"
   },
   "devDependencies": {
     "@types/node": "^26.6.4",

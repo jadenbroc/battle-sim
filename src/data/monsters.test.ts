@@ -9,6 +9,8 @@ import {
   buildEnemyGroup,
   engineActions,
   groupSize,
+  loadBookMonsters,
+  loadSrdMonsters,
   monsterToCombatants,
   monsterTypes,
   notSimulated,
@@ -193,5 +195,15 @@ describe('buildEnemyGroup', () => {
     const hero = makeCombatant('hero', 'party', { toHit: 20, dmg: '100', hp: 50 });
     const r = runFight({ combatants: [hero, ...combatants] }, createRng('monsters'));
     expect(r.outcome).toBe('won-clean');
+  });
+});
+
+describe('book monsters', () => {
+  it('are bundled and do not duplicate the SRD', async () => {
+    const book = await loadBookMonsters();
+    const srd = await loadSrdMonsters();
+    expect(book.length).toBeGreaterThan(100);
+    const ids = new Set(srd.map((m) => m.id));
+    expect(book.filter((m) => ids.has(m.id))).toEqual([]);
   });
 });

@@ -6,6 +6,12 @@ import type { MonsterAction, MonsterDef } from './monsterTypes';
 export const MAX_GROUP_SIZE = 12;
 
 /** Loads the bundled SRD 5.2 monster library (split into its own chunk). */
+/** Loads the bundled monsters from the author's own books (not in the SRD), split into its own chunk. */
+export async function loadBookMonsters(): Promise<MonsterDef[]> {
+  const mod = await import('./book-monsters.json');
+  return mod.default as unknown as MonsterDef[];
+}
+
 export async function loadSrdMonsters(): Promise<MonsterDef[]> {
   const mod = await import('./srd-monsters.json');
   return mod.default as unknown as MonsterDef[];

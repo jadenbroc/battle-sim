@@ -159,6 +159,13 @@ if (process.argv.includes('--bundle-spells')) {
   console.log(`Bundled ${bundled.length} spells into src/data/book-spells.json`);
 }
 
+// `--bundle-monsters` does the same for the monsters (src/data/book-monsters.json).
+if (process.argv.includes('--bundle-monsters')) {
+  const bundled = monsters.map(({ private: _private, ...rest }) => rest);
+  writeFileSync(join(root, 'src', 'data', 'book-monsters.json'), JSON.stringify(bundled) + '\n', 'utf8');
+  console.log(`Bundled ${bundled.length} monsters into src/data/book-monsters.json`);
+}
+
 const simulated = spells.filter((s) => s.effect);
 console.log(`Read ${all.length} spells from ${spellDir}`);
 console.log(`Wrote ${spells.length} that are not in the SRD library (${simulated.length} with a simulated effect) to ${join(outDir, 'private-data.json')}`);

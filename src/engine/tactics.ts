@@ -1,4 +1,5 @@
-import { averageDice, parseDice } from './dice';
+import { attackFlags, cannotTarget, d20Penalty, defensesOf, hasCondition, isAutoCrit, saveFlags, sizeAtMost } from './conditions';
+import { averageDice, parseDice, resolveMode, type RollMode } from './dice';
 import type { Rng } from './rng';
 import {
   attackSequence,
@@ -8,6 +9,8 @@ import {
   type AttackAction,
   type AttackOption,
   type Combatant,
+  type ConditionEffect,
+  type ConditionName,
   type Creature,
   type Defenses,
   type DamageType,
@@ -33,25 +36,98 @@ function factor(type: DamageType, d: Defenses): number {
   return (d.resistances.includes(type) ? 0.5 : 1) * (d.vulnerabilities.includes(type) ? 2 : 1);
 }
 
-/** Expected damage of one attack roll: hit chance (nat 20 hits, nat 1 misses) and crit chance. */
-export function expectedAttackDamage(a: AttackOption, target: Creature): number {
-  const pHit = clamp((21 - (target.ac - a.toHit)) / 20, 0.05, 0.95);
+/** Chance a d20 roll with this much advantage or disadvantage beats a single-roll chance `p`. */
+function withMode(p: number, mode: RollMode): number {
+  if (mode === 'advantage') return 1 - (1 - p) * (1 - p);
+  if (mode === 'disadvantage') return p * p;
+  return p;
+}
+
+function attackMode(a: AttackOption, target: Creature, attacker?: Creature): RollMode {
+  if (!attacker) return 'normal';
+  const flags = attackFlags(attacker, target, (a.range ?? 'melee') === 'melee');
+  return resolveMode(flags.advantage, flags.disadvantage);
+}
+
+/** Chance an attack hits (a natural 20 always hits, a natural 1 always misses). */
+export function attackHitChance(a: AttackOption, target: Creature, attacker?: Creature): number {
+  const bonus = a.toHit - (attacker ? d20Penalty(attacker) : 0);
+  return withMode(clamp((21 - (target.ac - bonus)) / 20, 0.05, 0.95), attackMode(a, target, attacker));
+}
+
+/**
+ * Expected damage of one attack roll: hit chance (nat 20 hits, nat 1 misses) and crit chance.
+ * Pass the attacker to account for conditions (advantage, auto-crits, exhaustion).
+ */
+export function expectedAttackDamage(a: AttackOption, target: Creature, attacker?: Creature): number {
+  const melee = (a.range ?? 'melee') === 'melee';
+  const pHit = attackHitChance(a, target, attacker);
+  const mode = attackMode(a, target, attacker);
+  const pCrit = isAutoCrit(target, melee) ? pHit : withMode(0.05, mode);
   let total = 0;
   for (const c of a.damage) {
     const expr = parseDice(c.dice);
     const avg = Math.max(0, averageDice(expr));
     const diceAvg = averageDice({ ...expr, modifier: 0 });
-    total += (pHit * avg + 0.05 * diceAvg) * factor(c.type, target);
+    total += (pHit * avg + pCrit * diceAvg) * factor(c.type, defensesOf(target));
   }
   return total;
 }
 
+/** Chance the target fails a save, counting auto-failure, disadvantage and exhaustion. */
+export function saveFailChance(target: Creature, ability: SaveOption['ability'], dc: number): number {
+  const sf = saveFlags(target, ability);
+  if (sf.autoFail) return 1;
+  const modifier = saveModifier(target, ability) - d20Penalty(target);
+  const pSave = withMode(clamp((21 - (dc - modifier)) / 20, 0, 1), resolveMode(sf.advantage, sf.disadvantage));
+  return 1 - pSave;
+}
+
 /** Expected damage of a save effect against one target. */
 export function expectedSaveDamage(s: SaveOption, target: Creature): number {
-  const pSave = clamp((21 - (s.dc - saveModifier(target, s.ability))) / 20, 0, 1);
+  const pSave = 1 - saveFailChance(target, s.ability, s.dc);
   let full = 0;
-  for (const c of s.damage) full += Math.max(0, averageDice(c.dice)) * factor(c.type, target);
+  for (const c of s.damage) full += Math.max(0, averageDice(c.dice)) * factor(c.type, defensesOf(target));
   return (1 - pSave) * full + (s.halfOnSave ? (pSave * full) / 2 : 0);
+}
+
+/**
+ * Rough worth of a condition, as a share of the attacker's damage per round: the more it
+ * disables the target, the closer to a full round of damage. A tunable heuristic, so that a
+ * Paralyzing touch or a Frightening moan counts for something next to raw damage.
+ */
+export const CONDITION_WEIGHT: Record<ConditionName, number> = {
+  paralyzed: 1,
+  stunned: 1,
+  unconscious: 1,
+  petrified: 1,
+  incapacitated: 0.9,
+  restrained: 0.5,
+  blinded: 0.5,
+  frightened: 0.4,
+  charmed: 0.4,
+  grappled: 0.25,
+  prone: 0.2,
+  poisoned: 0.2,
+  deafened: 0,
+  invisible: 0,
+};
+
+/** Expected extra worth of the conditions an effect would inflict, given the chance it lands. */
+export function effectsValue(
+  effects: readonly ConditionEffect[] | undefined,
+  target: Creature,
+  pLands: number,
+  dpr: number,
+): number {
+  let value = 0;
+  for (const e of effects ?? []) {
+    if (hasCondition(target, e.condition) || target.conditionImmunities?.includes(e.condition)) continue;
+    if (e.maxSize && !sizeAtMost(target.size, e.maxSize)) continue;
+    const avoid = e.avoidSave ? saveFailChance(target, e.avoidSave.ability, e.avoidSave.dc) : 1;
+    value += pLands * avoid * CONDITION_WEIGHT[e.condition] * dpr;
+  }
+  return value;
 }
 
 /** Damage per round from the stat block alone (ignores the target's AC and saves). */
@@ -102,6 +178,11 @@ export function validTargets(enemies: readonly Combatant[]): Combatant[] {
   return enemies.filter((e) => e.creature.status === 'down' || e.creature.status === 'stable');
 }
 
+/** Valid targets for this actor: a Charmed creature cannot target its charmer. */
+export function targetsFor(actor: Combatant, enemies: readonly Combatant[]): Combatant[] {
+  return validTargets(enemies.filter((e) => !cannotTarget(actor.creature, e.creature)));
+}
+
 export function chooseTarget(profile: TargetProfile, candidates: readonly Combatant[], rng: Rng): Combatant | null {
   if (candidates.length === 0) return null;
   if (profile === 'random') return candidates[rng.int(0, candidates.length - 1)]!;
@@ -145,12 +226,26 @@ function planHeal(actor: Combatant, allies: readonly Combatant[], slot: Slot): P
   return { kind: 'heal', action, target };
 }
 
-function expectedFor(action: Action, targets: readonly Combatant[], primary: Combatant): number {
+/** Expected damage plus the rough worth of the conditions the action would inflict. */
+function expectedFor(action: Action, targets: readonly Combatant[], primary: Combatant, actor: Combatant): number {
+  const dpr = estimateDpr(actor);
   if (action.kind === 'attack') {
-    return attackSequence(action).reduce((sum, a) => sum + expectedAttackDamage(a, primary.creature), 0);
+    return attackSequence(action).reduce(
+      (sum, a) =>
+        sum +
+        expectedAttackDamage(a, primary.creature, actor.creature) +
+        effectsValue(a.effects, primary.creature, attackHitChance(a, primary.creature, actor.creature), dpr),
+      0,
+    );
   }
-  if (!action.area) return expectedSaveDamage(action.save, primary.creature);
-  return targets.reduce((sum, t) => sum + expectedSaveDamage(action.save, t.creature), 0);
+  const hit = action.area ? targets : [primary];
+  return hit.reduce(
+    (sum, t) =>
+      sum +
+      expectedSaveDamage(action.save, t.creature) +
+      effectsValue(action.save.effects, t.creature, saveFailChance(t.creature, action.save.ability, action.save.dc), dpr),
+    0,
+  );
 }
 
 /**
@@ -170,27 +265,32 @@ export function planTurn(
   const heal = planHeal(actor, allies, slot);
   if (heal) return heal;
 
-  const candidates = validTargets(enemies);
+  const candidates = targetsFor(actor, enemies);
   const primary = chooseTarget(actor.profile, candidates, rng);
   if (!primary) return null;
 
-  const areaList = [...candidates].sort((a, b) => b.creature.hp - a.creature.hp);
-
-  let best: { action: Action; targets: Combatant[]; score: number } | null = null;
+  let best: { action: Action; targets: Combatant[]; primary: Combatant; score: number } | null = null;
   const options = usableOptions(
     actor.actions.filter((a) => inSlot(a, slot)),
     actor.slots,
     actor,
   );
   for (const action of options) {
+    // Some actions only work on a target in a given condition (Trample needs a Prone target).
+    const need = action.targetRequires;
+    const pool = need ? candidates.filter((t) => hasCondition(t.creature, need)) : candidates;
+    if (pool.length === 0) continue;
+    const target = need ? chooseTarget(actor.profile, pool, rng)! : primary;
+
     const cap = action.kind === 'save' && action.area ? Math.min(areaTargets, action.maxTargets ?? Infinity) : 1;
-    const targets = action.kind === 'save' && action.area ? areaList.slice(0, Math.max(1, cap)) : [primary];
-    const score = expectedFor(action, targets, primary);
-    if (!best || score > best.score) best = { action, targets, score };
+    const areaList = [...pool].sort((a, b) => b.creature.hp - a.creature.hp);
+    const targets = action.kind === 'save' && action.area ? areaList.slice(0, Math.max(1, cap)) : [target];
+    const score = expectedFor(action, targets, target, actor);
+    if (!best || score > best.score) best = { action, targets, primary: target, score };
   }
   if (!best) return null;
 
   return best.action.kind === 'attack'
-    ? { kind: 'attack', action: best.action, target: primary }
+    ? { kind: 'attack', action: best.action, target: best.primary }
     : { kind: 'save', action: best.action, targets: best.targets };
 }

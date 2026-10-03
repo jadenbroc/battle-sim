@@ -1,10 +1,29 @@
-import { rollD20 } from './dice';
-import { performAttack, performSave, type AttackEvent, type SaveEvent } from './combat';
-import { rollDice } from './dice';
+import {
+  activeNames,
+  canAct,
+  canStandUp,
+  d20Penalty,
+  expireAt,
+  initiativeMode,
+  releaseLinked,
+  removeCondition,
+  tickRounds,
+  type Removal,
+} from './conditions';
+import { creatureSave, performAttack, performSave, type AttackEvent, type SaveEvent } from './combat';
+import { rollD20, rollDice } from './dice';
 import { heal, rollDeathSave, type DeathSaveResult } from './hp';
 import type { Rng } from './rng';
-import { chooseTarget, planTurn, validTargets, type Plan } from './tactics';
-import { abilityMod, attackSequence, hasUses, initialUses, type Combatant, type UseLimit } from './types';
+import { chooseTarget, planTurn, targetsFor, type Plan } from './tactics';
+import {
+  abilityMod,
+  attackSequence,
+  hasUses,
+  initialUses,
+  type Combatant,
+  type ConditionName,
+  type UseLimit,
+} from './types';
 
 export interface FightOptions {
   /** Max enemies an area spell hits when there is no grid. */
@@ -24,6 +43,8 @@ export interface FightConfig {
 
 export type Outcome = 'won-clean' | 'won-deaths' | 'tpk' | 'stalemate';
 
+export type ConditionEndReason = 'expired' | 'released' | 'stood-up';
+
 export type LogEvent =
   | { kind: 'initiative'; order: { id: string; name: string; total: number }[] }
   | { kind: 'round-start'; round: number }
@@ -32,6 +53,10 @@ export type LogEvent =
   | { kind: 'heal'; actor: string; target: string; option: string; amount: number }
   | ({ kind: 'death-save'; actor: string } & DeathSaveResult)
   | { kind: 'recharge'; actor: string; option: string; roll: number; success: boolean }
+  | { kind: 'condition-end'; target: string; condition: ConditionName; reason: ConditionEndReason }
+  | { kind: 'repeat-save'; actor: string; condition: ConditionName; roll: number; dc: number; autoFail: boolean; success: boolean }
+  | { kind: 'escape'; actor: string; roll: number; dc: number; success: boolean }
+  | { kind: 'skip'; actor: string; reason: string }
   | { kind: 'no-action'; actor: string }
   | { kind: 'end'; outcome: Outcome; rounds: number };
 
@@ -62,17 +87,18 @@ interface Rolled {
 
 /**
  * Roll initiative (d20 + Dex check modifier). Ties go to the higher Dex score, then a coin flip.
- * Returns fighters in turn order.
+ * Invisible creatures roll with advantage and Incapacitated ones with disadvantage; Exhaustion
+ * applies. Returns fighters in turn order.
  */
 export function rollInitiative(rng: Rng, fighters: readonly Combatant[], group: boolean): Rolled[] {
   const groupRolls = new Map<string, number>();
   const rolled = fighters.map((fighter) => {
-    const mod = abilityMod(fighter.creature.abilityScores.dex) + (fighter.initiativeBonus ?? 0);
+    const mod = abilityMod(fighter.creature.abilityScores.dex) + (fighter.initiativeBonus ?? 0) - d20Penalty(fighter.creature);
     const key = group && fighter.groupKey ? fighter.groupKey : null;
     let natural: number;
     if (key !== null && groupRolls.has(key)) natural = groupRolls.get(key)!;
     else {
-      natural = rollD20(rng).natural;
+      natural = rollD20(rng, 0, initiativeMode(fighter.creature)).natural;
       if (key !== null) groupRolls.set(key, natural);
     }
     return { fighter, total: natural + mod, coin: rng.next() };
@@ -113,6 +139,7 @@ export function runFight(config: FightConfig, rng: Rng, opts: { log?: boolean } 
   if (!fighters.some((f) => f.team === 'party') || !fighters.some((f) => f.team === 'enemies')) {
     throw new Error('A fight needs at least one party member and one enemy');
   }
+  const creatures = fighters.map((f) => f.creature);
 
   const log: LoggedEvent[] = [];
   const push = (round: number, event: LogEvent): void => {
@@ -129,6 +156,10 @@ export function runFight(config: FightConfig, rng: Rng, opts: { log?: boolean } 
     order: order.map((o) => ({ id: o.fighter.creature.id, name: o.fighter.creature.name, total: o.total })),
   });
 
+  const logRemovals = (round: number, removed: readonly Removal[], reason: ConditionEndReason): void => {
+    for (const r of removed) push(round, { kind: 'condition-end', target: r.creature.name, condition: r.condition.name, reason });
+  };
+
   const execute = (round: number, actor: Combatant, plan: Plan): void => {
     if (plan.kind === 'heal') {
       spend(actor, plan.action);
@@ -144,6 +175,7 @@ export function runFight(config: FightConfig, rng: Rng, opts: { log?: boolean } 
         addDamage(actor, e.totalDamage);
         push(round, e);
       }
+      logRemovals(round, releaseLinked(creatures), 'released');
       return;
     }
 
@@ -152,12 +184,53 @@ export function runFight(config: FightConfig, rng: Rng, opts: { log?: boolean } 
     const attacks = attackSequence(plan.action);
     for (let i = 0; i < attacks.length; i++) {
       if (checkEnd(fighters)) break;
-      const target = i === 0 ? plan.target : chooseTarget(actor.profile, validTargets(enemies), rng);
+      const target = i === 0 ? plan.target : chooseTarget(actor.profile, targetsFor(actor, enemies), rng);
       if (!target) break;
       const e = performAttack(rng, actor.creature, attacks[i]!, target.creature);
       addDamage(actor, e.totalDamage);
       push(round, e);
     }
+    logRemovals(round, releaseLinked(creatures), 'released');
+  };
+
+  /** A creature that is both Grappled and Restrained by the grapple spends its action trying to escape. */
+  const tryEscape = (round: number, actor: Combatant): boolean => {
+    const c = actor.creature;
+    const grapple = (c.conditions ?? []).find((x) => x.name === 'grappled' && x.escapeDc);
+    const pinned = (c.conditions ?? []).some((x) => x.duration.kind === 'while' && x.duration.condition === 'grappled' && x.name === 'restrained');
+    if (!grapple || !pinned) return false;
+
+    // Strength (Athletics) or Dexterity (Acrobatics) check: the better ability modifier.
+    const mod = Math.max(abilityMod(c.abilityScores.str), abilityMod(c.abilityScores.dex)) - d20Penalty(c);
+    const roll = rollD20(rng, mod);
+    const success = roll.total >= grapple.escapeDc!;
+    push(round, { kind: 'escape', actor: c.name, roll: roll.total, dc: grapple.escapeDc!, success });
+    if (success) {
+      removeCondition(c, grapple);
+      logRemovals(round, releaseLinked(creatures), 'released');
+    }
+    return true;
+  };
+
+  /** End of a creature's turn: repeat saves against its conditions, then end-of-turn expiries. */
+  const endOfTurn = (round: number, actor: Combatant): void => {
+    const c = actor.creature;
+    for (const cond of [...(c.conditions ?? [])]) {
+      if (!cond.repeatSave) continue;
+      const r = creatureSave(rng, c, cond.repeatSave.ability, cond.repeatSave.dc);
+      push(round, {
+        kind: 'repeat-save',
+        actor: c.name,
+        condition: cond.name,
+        roll: r.roll.total,
+        dc: cond.repeatSave.dc,
+        autoFail: r.autoFail,
+        success: r.success,
+      });
+      if (r.success) removeCondition(c, cond);
+    }
+    logRemovals(round, expireAt(creatures, c.id, 'end'), 'expired');
+    logRemovals(round, releaseLinked(creatures), 'released');
   };
 
   let outcome: Outcome | null = null;
@@ -165,15 +238,25 @@ export function runFight(config: FightConfig, rng: Rng, opts: { log?: boolean } 
   while (!outcome && round < options.roundCap) {
     round++;
     push(round, { kind: 'round-start', round });
+    logRemovals(round, tickRounds(creatures), 'expired');
 
     for (const { fighter: actor } of order) {
       const c = actor.creature;
       if (c.status === 'dead' || c.status === 'stable') continue;
 
+      logRemovals(round, expireAt(creatures, c.id, 'start'), 'expired');
+
       if (c.status === 'down') {
         const result = rollDeathSave(rng, c);
         push(round, { kind: 'death-save', actor: c.name, ...result });
       } else {
+        // A prone creature stands up (spending half its movement) unless something pins it down.
+        const prone = (c.conditions ?? []).filter((x) => x.name === 'prone');
+        if (prone.length > 0 && canStandUp(c)) {
+          for (const p of prone) removeCondition(c, p);
+          push(round, { kind: 'condition-end', target: c.name, condition: 'prone', reason: 'stood-up' });
+        }
+
         // Recharge abilities that are spent roll a d6 at the start of the creature's turn.
         for (const a of actor.actions) {
           if (a.limit?.kind !== 'recharge' || hasUses(actor, a)) continue;
@@ -183,13 +266,20 @@ export function runFight(config: FightConfig, rng: Rng, opts: { log?: boolean } 
           push(round, { kind: 'recharge', actor: c.name, option: a.name, roll, success });
         }
 
-        const plan = planTurn(actor, fighters, rng, options.areaTargets, 'action');
-        if (plan) execute(round, actor, plan);
-        const bonus = checkEnd(fighters) ? null : planTurn(actor, fighters, rng, options.areaTargets, 'bonus');
-        if (bonus) execute(round, actor, bonus);
-        if (!plan && !bonus) push(round, { kind: 'no-action', actor: c.name });
+        if (!canAct(c)) {
+          const why = [...activeNames(c)].filter((n) => ['incapacitated', 'paralyzed', 'petrified', 'stunned', 'unconscious'].includes(n));
+          push(round, { kind: 'skip', actor: c.name, reason: why.filter((n) => n !== 'incapacitated').join(', ') || 'incapacitated' });
+        } else {
+          const escaped = tryEscape(round, actor);
+          const plan = escaped ? null : planTurn(actor, fighters, rng, options.areaTargets, 'action');
+          if (plan) execute(round, actor, plan);
+          const bonus = checkEnd(fighters) ? null : planTurn(actor, fighters, rng, options.areaTargets, 'bonus');
+          if (bonus) execute(round, actor, bonus);
+          if (!escaped && !plan && !bonus) push(round, { kind: 'no-action', actor: c.name });
+        }
       }
 
+      endOfTurn(round, actor);
       outcome = checkEnd(fighters);
       if (outcome) break;
     }

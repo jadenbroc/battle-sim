@@ -1,5 +1,5 @@
 import { averageDice } from '../engine/dice';
-import type { Action, AttackAction, AttackOption, Combatant } from '../engine/types';
+import { SIZES, isConditionName, type Action, type AttackAction, type AttackOption, type Combatant, type Size } from '../engine/types';
 import type { MonsterAction, MonsterDef } from './monsterTypes';
 
 /** Enemy groups are capped for Milestone 1. */
@@ -121,6 +121,10 @@ export function notSimulated(def: MonsterDef): string[] {
  */
 export function monsterToCombatants(def: MonsterDef, count: number, startNumber = 1): Combatant[] {
   const actions = engineActions(def);
+  // "Medium or Small" and similar: use the first size listed.
+  const firstSize = def.size.split(/\s+or\s+/i)[0]!.toLowerCase();
+  const size: Size = (SIZES as readonly string[]).includes(firstSize) ? (firstSize as Size) : 'medium';
+  const conditionImmunities = def.conditionImmunities.map((c) => c.toLowerCase()).filter(isConditionName);
   return Array.from({ length: count }, (_, i) => {
     const n = startNumber + i;
     const numbered = count > 1 || startNumber > 1;
@@ -139,6 +143,8 @@ export function monsterToCombatants(def: MonsterDef, count: number, startNumber 
         resistances: [...def.resistances],
         vulnerabilities: [...def.vulnerabilities],
         immunities: [...def.immunities],
+        size,
+        conditionImmunities,
       },
       team: 'enemies',
       profile: 'random',

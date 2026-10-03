@@ -2,9 +2,13 @@ import {
   isDamageType,
   type Ability,
   type AttackOption,
+  type ConditionEffect,
+  type ConditionName,
   type DamageComponent,
   type DamageType,
+  type Duration,
   type SaveOption,
+  type Size,
   type UseLimit,
 } from '../engine/types';
 import type { MonsterAction, MonsterDef, MonsterFeature, MultiattackPart } from './monsterTypes';
@@ -65,16 +69,99 @@ export function parseUseLimit(text: string): UseLimit | undefined {
   return undefined;
 }
 
+const COND_NAMES = 'Blinded|Charmed|Deafened|Frightened|Grappled|Incapacitated|Invisible|Paralyzed|Petrified|Poisoned|Prone|Restrained|Stunned|Unconscious';
+
 /**
- * True when an action only works on a target in some condition ("one creature within 5 feet that
- * has the Prone condition", "Grappled by the behir"). Conditions are not tracked yet, so these
- * would misfire if simulated.
+ * The condition an action needs its target to already have ("one creature within 5 feet that has
+ * the Prone condition", "one creature Grappled by the behir"), or null.
  */
-export function requiresTargetCondition(text: string): boolean {
+export function requiredTargetCondition(text: string): ConditionName | null {
   const t = clean(text);
   // Parentheticals are optional extras ("+5 (with Advantage if the target is Grappled by ...)").
   const before = t.split(/\b(?:Failure|Hit):/)[0]!.replace(/\([^)]*\)/g, ' ');
-  return /\b(?:has|have) the (?:Prone|Grappled|Restrained|Incapacitated|Stunned|Paralyzed|Unconscious|Blinded|Charmed|Frightened|Poisoned) condition/i.test(before) || /\bGrappled by\b/i.test(before);
+  const has = new RegExp(`\\b(?:has|have) the (${COND_NAMES}) condition`, 'i').exec(before);
+  if (has) return has[1]!.toLowerCase() as ConditionName;
+  if (/\bGrappled by\b/i.test(before)) return 'grappled';
+  return null;
+}
+
+const COND_RE = new RegExp(`\\b(?:has|have|is|are|becomes?)\\s+(?:the\\s+)?(${COND_NAMES})(?:\\s+and\\s+(${COND_NAMES}))?(?:\\s+conditions?)?`, 'gi');
+
+function parseDuration(tail: string, save: SaveContext | undefined): { duration: Duration; repeatSave?: SaveContext; escapeDc?: number } {
+  const escape = /\(escape DC (\d+)\)/i.exec(tail);
+  const repeats = /\brepeats? the save\b/i.test(tail) && save ? { repeatSave: save } : {};
+  const extra = { ...repeats, ...(escape ? { escapeDc: +escape[1]! } : {}) };
+
+  if (/until the grapple ends/i.test(tail)) return { duration: { kind: 'while', condition: 'grappled' }, ...extra };
+
+  const turn = /until the (start|end) of (?:its|(?:the )?([\w' -]+?)'s?) next turn/i.exec(tail);
+  if (turn) {
+    const source = turn[2];
+    if (!source) return { duration: { kind: 'endOfTargetNextTurn' }, ...extra };
+    return { duration: { kind: turn[1]!.toLowerCase() === 'start' ? 'startOfSourceNextTurn' : 'endOfSourceNextTurn' }, ...extra };
+  }
+
+  const span = /for (\d+) (minute|hour)s?/i.exec(tail);
+  if (span) return { duration: { kind: 'rounds', n: +span[1]! * (span[2]!.toLowerCase() === 'minute' ? 10 : 600) }, ...extra };
+  return { duration: { kind: 'indefinite' }, ...extra };
+}
+
+export interface SaveContext {
+  ability: Ability;
+  dc: number;
+}
+
+/**
+ * Conditions inflicted by an attack's hit or a save's failure, read from the effect text:
+ * "it has the Grappled condition (escape DC 14)", "the target has the Prone condition", "...until the
+ * end of its next turn", "for 1 minute", "repeats the save at the end of each of its turns".
+ * `save` is the save a "repeats the save" clause refers to. Staged effects ("First Failure",
+ * "Failure by 5 or More"), things that happen while swallowed or possessed, and HP-dependent
+ * outcomes are not read.
+ */
+export function parseConditionEffects(text: string, save?: SaveContext): ConditionEffect[] {
+  let t = clean(text);
+  if (/First Failure|Second Failure/i.test(t)) return [];
+  t = t.split(/\bFailure by \d+ or More\b/i)[0]!;
+
+  const out: ConditionEffect[] = [];
+  const sentences = t.split(/(?<=[.!?])\s+(?=[A-Z(])/);
+  for (const sentence of sentences) {
+    // "While Poisoned, the target has the Paralyzed condition": lasts as long as the first one.
+    const linked = new RegExp(`^While (${COND_NAMES}), the target has the (${COND_NAMES}) condition`, 'i').exec(sentence);
+    if (linked) {
+      const anchor = linked[1]!.toLowerCase() as ConditionName;
+      const condition = linked[2]!.toLowerCase() as ConditionName;
+      if (out.some((e) => e.condition === anchor) && !out.some((e) => e.condition === condition)) {
+        out.push({ condition, duration: { kind: 'while', condition: anchor } });
+      }
+      continue;
+    }
+    if (/^While\b/i.test(sentence) || /swallow|possess|Total Cover|no longer|Hit Points or fewer|dies/i.test(sentence)) continue;
+    if (!/\b(?:target|it|creature)\b/i.test(sentence)) continue;
+
+    const size = /\bis (?:an? )?(Tiny|Small|Medium|Large|Huge|Gargantuan)(?: or smaller)?(?: creature)?/i.exec(sentence)?.[1];
+    const matches = [...sentence.matchAll(COND_RE)];
+    matches.forEach((m, i) => {
+      const end = m.index + m[0].length;
+      const next = matches[i + 1]?.index ?? sentence.length;
+      const tail = sentence.slice(end, next);
+      const { duration, repeatSave, escapeDc } = parseDuration(tail, save);
+      for (const raw of [m[1], m[2]]) {
+        if (!raw) continue;
+        const condition = raw.toLowerCase() as ConditionName;
+        if (out.some((e) => e.condition === condition)) continue;
+        out.push({
+          condition,
+          duration,
+          ...(size ? { maxSize: size.toLowerCase() as Size } : {}),
+          ...(repeatSave ? { repeatSave } : {}),
+          ...(escapeDc && condition === 'grappled' ? { escapeDc } : {}),
+        });
+      }
+    });
+  }
+  return out;
 }
 
 const DAMAGE_RE =/(\d+)(?:\s*\(\s*(\d+d\d+(?:\s*[+-]\s*\d+)?)\s*\))?\s+([A-Za-z]+)\s+damage/g;
@@ -100,31 +187,60 @@ export function parseDamage(text: string): DamageComponent[] {
   return parts;
 }
 
+const SAVE_RE = /(Strength|Dexterity|Constitution|Intelligence|Wisdom|Charisma) Saving Throw:\s*DC\s*(\d+)/;
+
 export function parseAttack(name: string, text: string): AttackOption | null {
   const t = clean(text);
-  const roll = /(?:Melee or Ranged|Melee|Ranged) Attack Roll:\s*([+-]\d+)/.exec(t);
+  const roll = /(Melee or Ranged|Melee|Ranged) Attack Roll:\s*([+-]\d+)/.exec(t);
   const hit = /\bHit:\s*(.*)$/.exec(t);
   if (!roll || !hit) return null;
-  const damage = parseDamage(hit[1]!);
-  if (damage.length === 0) return null;
-  return { name, toHit: parseInt(roll[1]!, 10), damage };
+
+  // A rider may allow a save to avoid it: "...subjected to the following effect. Constitution
+  // Saving Throw: DC 12. Failure: The target has the Poisoned condition ...".
+  const [plainText, nested] = splitAtSave(hit[1]!);
+  const effects = [
+    ...parseConditionEffects(plainText),
+    ...(nested ? parseConditionEffects(nested.failure, nested.save).map((e) => ({ ...e, avoidSave: nested.save })) : []),
+  ];
+
+  const damage = parseDamage(plainText);
+  if (damage.length === 0 && effects.length === 0) return null;
+  return {
+    name,
+    toHit: parseInt(roll[2]!, 10),
+    damage,
+    ...(roll[1] === 'Ranged' ? { range: 'ranged' as const } : {}),
+    ...(effects.length ? { effects } : {}),
+  };
+}
+
+function splitAtSave(text: string): [string, { save: SaveContext; failure: string } | null] {
+  const m = SAVE_RE.exec(text);
+  if (!m) return [text, null];
+  const failure = /Failure:\s*(.*?)(?:\s+(?:Failure or )?Success:|$)/.exec(text.slice(m.index));
+  if (!failure) return [text, null];
+  return [text.slice(0, m.index), { save: { ability: ABILITY_BY_NAME[m[1]!.toLowerCase()]!, dc: +m[2]! }, failure: failure[1]! }];
 }
 
 export function parseSave(name: string, text: string): { save: SaveOption; area: boolean } | null {
   const t = clean(text);
-  const head = /(Strength|Dexterity|Constitution|Intelligence|Wisdom|Charisma) Saving Throw:\s*DC\s*(\d+)/.exec(t);
+  const head = SAVE_RE.exec(t);
   const failure = /Failure:\s*(.*?)(?:\s+(?:Failure or )?Success:|$)/.exec(t);
   if (!head || !failure) return null;
+  const ability = ABILITY_BY_NAME[head[1]!.toLowerCase()]!;
+  const dc = parseInt(head[2]!, 10);
   const damage = parseDamage(failure[1]!);
-  if (damage.length === 0) return null;
+  const effects = parseConditionEffects(failure[1]!, { ability, dc });
+  if (damage.length === 0 && effects.length === 0) return null;
   const beforeFailure = t.slice(0, t.indexOf('Failure:'));
   return {
     save: {
       name,
-      ability: ABILITY_BY_NAME[head[1]!.toLowerCase()]!,
-      dc: parseInt(head[2]!, 10),
+      ability,
+      dc,
       damage,
       halfOnSave: /Success:\s*Half damage/i.test(t),
+      ...(effects.length ? { effects } : {}),
     },
     area: /each creature|\b(?:Cone|Line|Cube|Sphere|Emanation|Cylinder)\b/i.test(beforeFailure),
   };
@@ -205,29 +321,35 @@ export function classifyActions(
       continue;
     }
 
-    // A usage limit we do not understand, or a condition we cannot track: leave it unsimulated.
+    // A usage limit we do not understand: leave the action unsimulated.
     const limit = limitText ? parseUseLimit(limitText) : undefined;
-    if ((limitText && !limit) || requiresTargetCondition(f.text)) {
+    if (limitText && !limit) {
+      otherActions.push(f);
+      continue;
+    }
+    // Swallowing, engulfing and possession change a creature's whole state (damage each turn,
+    // total cover, ...), which is not modelled: leave them unsimulated.
+    if (/swallow|engulf|possess/i.test(f.text) || base === 'Attach') {
       otherActions.push(f);
       continue;
     }
 
+    const requires = requiredTargetCondition(f.text);
+    const extra = { ...(limit ? { limit } : {}), ...slot, ...(requires ? { targetRequires: requires } : {}) };
+    // Condition words left once the "needs a target that has X" requirement is set aside.
+    const mentionsConditions = /\bcondition\b/i.test(f.text.replace(/that (?:has|is) the \w+ condition/i, ''));
+
     const attack = parseAttack(base, f.text);
     if (attack) {
-      actions.push({ kind: 'attack', name: base, attack, ...(limit ? { limit } : {}), ...slot });
+      actions.push({ kind: 'attack', name: base, attack, ...extra });
+      if (mentionsConditions && !attack.effects) notes.push(`${base}: condition effects are not simulated`);
       continue;
     }
 
     const save = parseSave(base, f.text);
     if (save) {
-      actions.push({
-        kind: 'save',
-        name: base,
-        save: save.save,
-        ...(save.area ? { area: true } : {}),
-        ...(limit ? { limit } : {}),
-        ...slot,
-      });
+      actions.push({ kind: 'save', name: base, save: save.save, ...(save.area ? { area: true } : {}), ...extra });
+      if (mentionsConditions && !save.save.effects) notes.push(`${base}: condition effects are not simulated`);
       continue;
     }
 

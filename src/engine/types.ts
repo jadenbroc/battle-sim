@@ -34,11 +34,86 @@ export interface Defenses {
   immunities: readonly DamageType[];
 }
 
+export const CONDITIONS = [
+  'blinded',
+  'charmed',
+  'deafened',
+  'frightened',
+  'grappled',
+  'incapacitated',
+  'invisible',
+  'paralyzed',
+  'petrified',
+  'poisoned',
+  'prone',
+  'restrained',
+  'stunned',
+  'unconscious',
+] as const;
+/** The 14 ordinary conditions. Exhaustion is a level on the creature (`exhaustion`). */
+export type ConditionName = (typeof CONDITIONS)[number];
+
+export function isConditionName(value: string): value is ConditionName {
+  return (CONDITIONS as readonly string[]).includes(value.toLowerCase());
+}
+
+export const SIZES = ['tiny', 'small', 'medium', 'large', 'huge', 'gargantuan'] as const;
+export type Size = (typeof SIZES)[number];
+
+/**
+ * How long a condition lasts, as written on the effect:
+ * - indefinite: until something removes it (escape, the source going down, ...)
+ * - endOfTargetNextTurn: "until the end of its next turn"
+ * - startOfSourceNextTurn / endOfSourceNextTurn: "until the start/end of the <attacker>'s next turn"
+ * - rounds: a fixed number of rounds (1 minute = 10 rounds)
+ * - while: lasts while the target keeps another condition from the same source ("until the grapple
+ *   ends" = while Grappled; "While Poisoned, the target has the Paralyzed condition")
+ */
+export type Duration =
+  | { kind: 'indefinite' }
+  | { kind: 'endOfTargetNextTurn' }
+  | { kind: 'startOfSourceNextTurn' }
+  | { kind: 'endOfSourceNextTurn' }
+  | { kind: 'rounds'; n: number }
+  | { kind: 'while'; condition: ConditionName };
+
+/** A condition an attack or save effect inflicts. */
+export interface ConditionEffect {
+  condition: ConditionName;
+  duration: Duration;
+  /** Only creatures of this size or smaller are affected ("a Large or smaller creature"). */
+  maxSize?: Size;
+  /** Attack riders: the target may roll this save to avoid the condition. */
+  avoidSave?: { ability: Ability; dc: number };
+  /** The target repeats this save at the end of each of its turns, ending the condition on success. */
+  repeatSave?: { ability: Ability; dc: number };
+  /** Grappled: the DC to escape. */
+  escapeDc?: number;
+}
+
+/** A condition currently on a creature. */
+export interface ActiveCondition {
+  name: ConditionName;
+  /** The creature that inflicted it (for Charmed, Frightened, Grappled). */
+  sourceId?: string;
+  duration: Duration;
+  /** Turn-boundary expiry: when `at` happens for creature `id`, after skipping `skip` such events. */
+  expires?: { id: string; at: 'start' | 'end'; skip: number };
+  /** Rounds left, for `rounds` durations. */
+  roundsLeft?: number;
+  repeatSave?: { ability: Ability; dc: number };
+  escapeDc?: number;
+}
+
 export interface AttackOption {
   name: string;
   /** Total attack bonus (ability mod + proficiency + extras). */
   toHit: number;
   damage: DamageComponent[];
+  /** Melee attacks count as within 5 feet of the target, ranged ones do not. Default melee. */
+  range?: 'melee' | 'ranged';
+  /** Conditions inflicted on a hit. */
+  effects?: ConditionEffect[];
 }
 
 export interface SaveOption {
@@ -48,6 +123,8 @@ export interface SaveOption {
   damage: DamageComponent[];
   /** True when a successful save halves the damage; false when it negates it. */
   halfOnSave: boolean;
+  /** Conditions inflicted on a failed save. */
+  effects?: ConditionEffect[];
 }
 
 /** alive = conscious; down = 0 HP and rolling death saves; stable = 0 HP, not rolling; dead. */
@@ -71,6 +148,14 @@ export interface Creature extends Defenses {
   hp: number;
   status: LifeStatus;
   deathSaves: DeathSaves;
+  /** Default medium. Size-limited effects ("a Large or smaller creature") check this. */
+  size?: Size;
+  /** Conditions currently affecting the creature. */
+  conditions?: ActiveCondition[];
+  /** Exhaustion level (0-6). Each level is -2 on D20 Tests; level 6 is death. */
+  exhaustion?: number;
+  /** Conditions the creature cannot gain. */
+  conditionImmunities?: ConditionName[];
 }
 
 export type Team = 'party' | 'enemies';
@@ -96,6 +181,8 @@ interface ActionBase {
   limit?: UseLimit;
   /** Takes the bonus action instead of the action. A creature gets one of each per turn. */
   bonus?: boolean;
+  /** Only usable on a target that has this condition ("one creature that has the Prone condition"). */
+  targetRequires?: ConditionName;
 }
 
 export interface AttackAction extends ActionBase {

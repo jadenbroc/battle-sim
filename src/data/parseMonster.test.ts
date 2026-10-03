@@ -5,8 +5,11 @@ import {
   damageTypes,
   parseDamage,
   parseMultiattack,
+  parseAttack,
+  parseConditionEffects,
+  parseSave,
   parseUseLimit,
-  requiresTargetCondition,
+  requiredTargetCondition,
   splitLimit,
 } from './parseMonster';
 
@@ -35,19 +38,113 @@ describe('parseUseLimit', () => {
   });
 });
 
-describe('requiresTargetCondition', () => {
-  it('spots actions that need a prone or grappled target', () => {
-    expect(requiresTargetCondition('Dexterity Saving Throw: DC 16, one creature within 5 feet that has the Prone condition. Failure: 17 (2d10 + 6) Bludgeoning damage.')).toBe(true);
-    expect(requiresTargetCondition('Dexterity Saving Throw: DC 18, one Large or smaller creature Grappled by the behir. Failure: swallowed')).toBe(true);
+describe('requiredTargetCondition', () => {
+  it('finds the condition an action needs its target to have', () => {
+    expect(requiredTargetCondition('Dexterity Saving Throw: DC 16, one creature within 5 feet that has the Prone condition. Failure: 17 (2d10 + 6) Bludgeoning damage.')).toBe('prone');
+    expect(requiredTargetCondition('Dexterity Saving Throw: DC 18, one Large or smaller creature Grappled by the behir. Failure: swallowed')).toBe('grappled');
   });
 
   it('ignores optional conditions in parentheses', () => {
-    expect(requiresTargetCondition('Melee Attack Roll: +5 (with Advantage if the target is Grappled by the ankheg), reach 5 ft. Hit: 10 (2d6 + 3) Slashing damage.')).toBe(false);
+    expect(requiredTargetCondition('Melee Attack Roll: +5 (with Advantage if the target is Grappled by the ankheg), reach 5 ft. Hit: 10 (2d6 + 3) Slashing damage.')).toBeNull();
   });
 
   it('ignores conditions that are only inflicted', () => {
-    expect(requiresTargetCondition('Melee Attack Roll: +4, reach 5 ft. Hit: 5 (1d6 + 2) Piercing damage. The target has the Prone condition.')).toBe(false);
-    expect(requiresTargetCondition('Strength Saving Throw: DC 14. Failure: 7 (1d6 + 4) Bludgeoning damage, and the target has the Prone condition.')).toBe(false);
+    expect(requiredTargetCondition('Melee Attack Roll: +4, reach 5 ft. Hit: 5 (1d6 + 2) Piercing damage. The target has the Prone condition.')).toBeNull();
+    expect(requiredTargetCondition('Strength Saving Throw: DC 14. Failure: 7 (1d6 + 4) Bludgeoning damage, and the target has the Prone condition.')).toBeNull();
+  });
+});
+
+describe('parseConditionEffects', () => {
+  it('reads a size-gated condition with an escape DC', () => {
+    expect(parseConditionEffects('12 (2d6 + 5) Bludgeoning damage. If the target is a Large or smaller creature, it has the Grappled condition (escape DC 14) from one of four tentacles.')).toEqual([
+      { condition: 'grappled', duration: { kind: 'indefinite' }, maxSize: 'large', escapeDc: 14 },
+    ]);
+  });
+
+  it('reads a condition that lasts until the grapple ends', () => {
+    const fx = parseConditionEffects('28 (5d8 + 6) Bludgeoning damage. The target has the Grappled condition (escape DC 16), and it has the Restrained condition until the grapple ends.');
+    expect(fx).toEqual([
+      { condition: 'grappled', duration: { kind: 'indefinite' }, escapeDc: 16 },
+      { condition: 'restrained', duration: { kind: 'while', condition: 'grappled' } },
+    ]);
+  });
+
+  it('reads durations tied to turns, minutes and hours', () => {
+    expect(parseConditionEffects('and the target has the Poisoned condition until the end of its next turn.')[0]!.duration).toEqual({ kind: 'endOfTargetNextTurn' });
+    expect(parseConditionEffects('and the target has the Poisoned condition until the start of the assassin’s next turn.')[0]!.duration).toEqual({ kind: 'startOfSourceNextTurn' });
+    expect(parseConditionEffects('The target has the Restrained condition until the end of the devil’s next turn, at which point the chain disappears.')[0]!.duration).toEqual({ kind: 'endOfSourceNextTurn' });
+    expect(parseConditionEffects('The target has the Charmed condition for 1 minute.')[0]!.duration).toEqual({ kind: 'rounds', n: 10 });
+    expect(parseConditionEffects('The target has the Frightened condition for 1 hour.')[0]!.duration).toEqual({ kind: 'rounds', n: 600 });
+  });
+
+  it('reads "repeats the save at the end of each of its turns" using the action\'s save', () => {
+    const fx = parseConditionEffects('The target has the Frightened condition and repeats the save at the end of each of its turns, ending the effect on itself on a success.', { ability: 'wis', dc: 13 });
+    expect(fx[0]).toMatchObject({ condition: 'frightened', repeatSave: { ability: 'wis', dc: 13 } });
+    expect(parseConditionEffects('The target has the Frightened condition and repeats the save at the end of each of its turns.')[0]!.repeatSave).toBeUndefined();
+  });
+
+  it('reads two conditions in one clause', () => {
+    expect(parseConditionEffects('The target has the Blinded and Restrained conditions.').map((e) => e.condition)).toEqual(['blinded', 'restrained']);
+  });
+
+  it('links "While Poisoned, the target has the Paralyzed condition" to the poison', () => {
+    const fx = parseConditionEffects(
+      'The target has the Poisoned condition and repeats the save at the end of each of its turns. After 1 minute, it succeeds automatically. While Poisoned, the target has the Paralyzed condition.',
+      { ability: 'con', dc: 13 },
+    );
+    expect(fx.map((e) => e.condition)).toEqual(['poisoned', 'paralyzed']);
+    expect(fx[1]!.duration).toEqual({ kind: 'while', condition: 'poisoned' });
+    expect(fx[1]!.repeatSave).toBeUndefined();
+  });
+
+  it('skips staged, HP-dependent and swallowed effects', () => {
+    expect(parseConditionEffects('First Failure: The target has the Restrained condition. Second Failure: Petrified.')).toEqual([]);
+    expect(parseConditionEffects('If the target has 20 Hit Points or fewer, it has the Unconscious condition for 1 hour.')).toEqual([]);
+    expect(parseConditionEffects('The behir swallows the target, which is no longer Grappled. While swallowed, a creature has the Blinded and Restrained conditions.')).toEqual([]);
+  });
+
+  it('ignores the "Failure by 5 or More" tier', () => {
+    const fx = parseConditionEffects('The target has the Poisoned condition until the end of the homunculus’s next turn. Failure by 5 or More: The target has the Poisoned condition for 1 minute.');
+    expect(fx).toHaveLength(1);
+    expect(fx[0]!.duration).toEqual({ kind: 'endOfSourceNextTurn' });
+  });
+});
+
+describe('attacks and saves with conditions', () => {
+  it('parseAttack reads a ranged attack and its condition rider', () => {
+    const a = parseAttack('Storm Bolt', 'Ranged Attack Roll: +9, range 120 feet. Hit: 13 (3d8) Thunder damage. If the target is a Large or smaller creature, it has the Prone condition.')!;
+    expect(a.range).toBe('ranged');
+    expect(a.effects).toEqual([{ condition: 'prone', duration: { kind: 'indefinite' }, maxSize: 'large' }]);
+    expect(parseAttack('Bite', 'Melee Attack Roll: +4, reach 5 ft. Hit: 5 (1d6 + 2) Piercing damage.')).toEqual({
+      name: 'Bite',
+      toHit: 4,
+      damage: [{ dice: '1d6+2', type: 'piercing' }],
+    });
+  });
+
+  it('parseAttack reads a rider that allows a saving throw', () => {
+    const a = parseAttack(
+      'Bite',
+      'Melee Attack Roll: +4, reach 5 ft. Hit: 1 Piercing damage, and the target is subjected to the following effect. Constitution Saving Throw: DC 12. Failure: The target has the Poisoned condition until the end of the homunculus’s next turn.',
+    )!;
+    expect(a.damage).toEqual([{ dice: '1', type: 'piercing' }]);
+    expect(a.effects).toEqual([
+      { condition: 'poisoned', duration: { kind: 'endOfSourceNextTurn' }, avoidSave: { ability: 'con', dc: 12 } },
+    ]);
+  });
+
+  it('parseSave accepts a save with conditions and no damage', () => {
+    const s = parseSave('Moan', 'Wisdom Saving Throw: DC 13, each creature in a 60-foot Emanation. Failure: The target has the Frightened condition until the end of the cloaker’s next turn. Success: The target is immune to this cloaker’s Moan for the next 24 hours.')!;
+    expect(s.save.damage).toEqual([]);
+    expect(s.save.effects).toEqual([{ condition: 'frightened', duration: { kind: 'endOfSourceNextTurn' } }]);
+    expect(s.area).toBe(true);
+  });
+
+  it('parseSave attaches conditions to a damaging save', () => {
+    const s = parseSave('Whirlwind', 'Strength Saving Throw: DC 13, one Medium or smaller creature. Failure: 24 (4d10 + 2) Thunder damage, and the target is pushed up to 20 feet and has the Prone condition. Success: Half damage only.')!;
+    expect(s.save.damage).toEqual([{ dice: '4d10+2', type: 'thunder' }]);
+    expect(s.save.halfOnSave).toBe(true);
+    expect(s.save.effects?.[0]).toMatchObject({ condition: 'prone' });
   });
 });
 
@@ -177,10 +274,10 @@ describe('classifyActions', () => {
   it('sends spellcasting and effect-only actions to otherActions', () => {
     const r = classify([
       ['Spellcasting', 'The mage casts one of the following spells (spell save DC 14): At Will: Light.'],
-      ['Frighten', 'Wisdom Saving Throw: DC 14, one creature. Failure: The target is Frightened for 1 minute.'],
+      ['Teleport', 'Charisma Saving Throw: DC 14, one creature. Failure: The target is teleported up to 30 feet.'],
     ]);
     expect(r.actions).toEqual([]);
-    expect(r.otherActions.map((f) => f.name)).toEqual(['Spellcasting', 'Frighten']);
+    expect(r.otherActions.map((f) => f.name)).toEqual(['Spellcasting', 'Teleport']);
   });
 
   it('flags bonus actions and keeps a multiattack out of the bonus slot', () => {
@@ -197,13 +294,36 @@ describe('classifyActions', () => {
     expect(r.multiattack).toBeUndefined();
   });
 
-  it('leaves actions that need a prone target, or have an unknown limit, unsimulated', () => {
+  it('marks actions that need a target in some condition, without calling that an unparsed effect', () => {
+    const notes: string[] = [];
+    const r = classifyActions(
+      [{ name: 'Trample', text: 'Dexterity Saving Throw: DC 16, one creature within 5 feet that has the Prone condition. Failure: 17 (2d10 + 6) Bludgeoning damage. Success: Half damage.' }],
+      notes,
+      { bonus: true },
+    );
+    expect(r.actions[0]).toMatchObject({ name: 'Trample', targetRequires: 'prone', bonus: true });
+    expect(notes).toEqual([]);
+  });
+
+  it('leaves actions with an unknown usage limit unsimulated', () => {
+    const r = classify([['Haunting (1/Day; Requires Soul Bag)', 'Wisdom Saving Throw: DC 15, one creature. Failure: 10 (3d6) Psychic damage.']]);
+    expect(r.actions).toEqual([]);
+    expect(r.otherActions.map((f) => f.name)).toEqual(['Haunting (1/Day; Requires Soul Bag)']);
+  });
+
+  it('leaves swallow, engulf and possession unsimulated', () => {
     const r = classify([
-      ['Trample', 'Dexterity Saving Throw: DC 16, one creature within 5 feet that has the Prone condition. Failure: 17 (2d10 + 6) Bludgeoning damage. Success: Half damage.'],
-      ['Haunting (1/Day; Requires Soul Bag)', 'Wisdom Saving Throw: DC 15, one creature. Failure: 10 (3d6) Psychic damage.'],
+      ['Swallow', 'Dexterity Saving Throw: DC 18, one creature. Failure: The behir swallows the target. While swallowed, it takes 21 (6d6) Acid damage at the start of each of the behir’s turns.'],
+      ['Engulf', 'Dexterity Saving Throw: DC 12, each creature. Failure: The cube engulfs the target, which takes 10 (3d6) Acid damage.'],
     ]);
     expect(r.actions).toEqual([]);
-    expect(r.otherActions.map((f) => f.name)).toEqual(['Trample', 'Haunting (1/Day; Requires Soul Bag)']);
+    expect(r.otherActions).toHaveLength(2);
+  });
+
+  it('notes a condition it could not read instead of silently dropping it', () => {
+    const notes: string[] = [];
+    classifyActions([{ name: 'Petrifying Bite', text: 'Melee Attack Roll: +3, reach 5 ft. Hit: 4 (1d4 + 2) Piercing damage. First Failure: The target has the Restrained condition.' }], notes);
+    expect(notes).toEqual(['Petrifying Bite: condition effects are not simulated']);
   });
 
   it('records the multiattack separately from the actions', () => {

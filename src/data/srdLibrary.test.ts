@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import { parseDice } from '../engine/dice';
-import { ABILITIES, isDamageType } from '../engine/types';
+import { ABILITIES, isConditionName, isDamageType } from '../engine/types';
 import { runFight } from '../engine/fight';
 import { createRng } from '../engine/rng';
 import { makeCombatant } from '../engine/testUtil';
@@ -56,7 +56,12 @@ describe('bundled SRD library', () => {
       for (const t of [...m.resistances, ...m.vulnerabilities, ...m.immunities]) expect(isDamageType(t), `${m.name} ${t}`).toBe(true);
       for (const a of m.actions) {
         const parts = a.kind === 'attack' ? a.attack.damage : a.save.damage;
-        expect(parts.length, `${m.name} ${a.name}`).toBeGreaterThan(0);
+        const effects = (a.kind === 'attack' ? a.attack.effects : a.save.effects) ?? [];
+        expect(parts.length + effects.length, `${m.name} ${a.name}`).toBeGreaterThan(0); // damage, a condition, or both
+        for (const e of effects) {
+          expect(isConditionName(e.condition), `${m.name} ${a.name} ${e.condition}`).toBe(true);
+          expect(['indefinite', 'endOfTargetNextTurn', 'startOfSourceNextTurn', 'endOfSourceNextTurn', 'rounds', 'while'], `${m.name} ${a.name}`).toContain(e.duration.kind);
+        }
         for (const p of parts) {
           expect(isDamageType(p.type), `${m.name} ${a.name} ${p.type}`).toBe(true);
           expect(() => parseDice(p.dice), `${m.name} ${a.name} ${p.dice}`).not.toThrow();
@@ -107,10 +112,35 @@ describe('bundled SRD library', () => {
     expect(get('nalfeshnee').actions.find((a) => a.name === 'Horror Nimbus')).toMatchObject({ bonus: true, limit: { kind: 'recharge', min: 5 } });
   });
 
-  it('leaves actions that need a prone or grappled target unsimulated', () => {
-    expect(get('elephant').actions.map((a) => a.name)).not.toContain('Trample');
+  it('simulates actions that need a prone or grappled target, with that requirement', () => {
+    const trample = get('elephant').actions.find((a) => a.name === 'Trample');
+    expect(trample).toMatchObject({ kind: 'save', bonus: true, targetRequires: 'prone' });
+    expect(get('gorgon').actions.find((a) => a.name === 'Trample')?.targetRequires).toBe('prone');
+    expect(get('glabrezu').actions.find((a) => a.name === 'Pummel')?.targetRequires).toBe('grappled');
+  });
+
+  it('leaves swallowing unsimulated', () => {
     expect(get('behir').actions.map((a) => a.name)).not.toContain('Swallow');
     expect(get('behir').bonusActions.map((a) => a.name)).toContain('Swallow');
+    expect(get('purple-worm').actions.map((a) => a.name)).not.toContain('Swallow');
+  });
+
+  it('reads condition riders from the stat blocks', () => {
+    expect(get('wolf').actions[0]).toMatchObject({ attack: { effects: [{ condition: 'prone', maxSize: 'medium' }] } });
+    const constrict = get('behir').actions.find((a) => a.name === 'Constrict');
+    expect(constrict?.kind === 'save' && constrict.save.effects?.map((e) => e.condition)).toEqual(['grappled', 'restrained']);
+    const tentacles = get('chuul').actions.find((a) => a.name === 'Paralyzing Tentacles');
+    expect(tentacles?.kind === 'save' && tentacles.save.effects?.map((e) => e.condition)).toEqual(['poisoned', 'paralyzed']);
+    const moan = get('cloaker').actions.find((a) => a.name === 'Moan');
+    expect(moan).toMatchObject({ kind: 'save', area: true, save: { damage: [], effects: [{ condition: 'frightened' }] } });
+  });
+
+  it('carries size and condition immunities onto the combatants', () => {
+    const [golem] = monsterToCombatants(get('clay-golem'), 1);
+    expect(golem!.creature.size).toBe('large');
+    expect(golem!.creature.conditionImmunities).toEqual(expect.arrayContaining(['charmed', 'frightened', 'paralyzed', 'petrified', 'poisoned']));
+    const [mage] = monsterToCombatants(get('mage'), 1);
+    expect(mage!.creature.size).toBe('medium'); // "Medium or Small": the first size listed
   });
 
   it('every limit is a structured recharge or per-day limit', () => {

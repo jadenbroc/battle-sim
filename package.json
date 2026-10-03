@@ -10,7 +10,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "data:fetch": "node scripts/fetch-srd-monsters.mjs",
-    "data:build": "tsx scripts/build-monsters.ts && tsx scripts/build-spells.ts"
+    "data:build": "tsx scripts/build-monsters.ts && tsx scripts/build-spells.ts",
+    "data:private": "tsx scripts/build-private.ts"
   },
   "devDependencies": {
     "@types/node": "^26.6.4",

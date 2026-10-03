@@ -21,11 +21,18 @@ const ABILITY_BY_NAME: Record<string, Ability> = {
   intelligence: 'int',
   wisdom: 'wis',
   charisma: 'cha',
+  str: 'str',
+  dex: 'dex',
+  con: 'con',
+  int: 'int',
+  wis: 'wis',
+  cha: 'cha',
 };
 
 const NUMBER_WORDS: Record<string, number> = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9 };
 
-const SAVE_RE = /\b(Strength|Dexterity|Constitution|Intelligence|Wisdom|Charisma) saving throw/i;
+// "Dexterity saving throw" (SRD) or "WIS save" (the author's library).
+export const SAVE_RE = /\b(Strength|Dexterity|Constitution|Intelligence|Wisdom|Charisma|STR|DEX|CON|INT|WIS|CHA)\s+(?:saving throws?|saves?)\b/i;
 const DAMAGE_RE = /(\d+d\d+(?:\s*[+-]\s*\d+)?)\s+([A-Za-z]+)\s+damage/g;
 const PROJECTILE = '(?:rays?|beams?|darts?|bolts?|missiles?)';
 
@@ -85,7 +92,7 @@ function saveBlock(text: string, saveIndex: number): string {
     pos += sentences[i]!.length + 1;
   }
   const out = [sentences[start]!];
-  for (let i = start + 1; i < sentences.length && /^(?:On a (?:failed|successful) save|On a (?:failure|success)|A creature that fails)/i.test(sentences[i]!); i++) {
+  for (let i = start + 1; i < sentences.length && /^(?:On a (?:failed|successful) save|On a (?:failure|success)|A (?:creature|target) that (?:fails|succeeds))/i.test(sentences[i]!); i++) {
     out.push(sentences[i]!);
   }
   return out.join(' ');
@@ -123,28 +130,38 @@ export function parseScaling(
   higher: string | undefined,
   cantrip: string | undefined,
   notes: string[],
+  /** Die size of the spell's damage, for texts that say "one die at level 5" without naming it. */
+  baseSides?: number,
 ): SpellScaling | undefined {
   const scaling: SpellScaling = {};
 
   if (higher) {
     const h = clean(higher);
-    const above = /for each spell slot level above (\d)/i.exec(h);
-    const damage = /damage (?:\([^)]*\) )?increases by (\d+d\d+) for each spell slot level above (\d)/i.exec(h);
-    const healing = /healing increases by (\d+d\d+) for each spell slot level above (\d)/i.exec(h);
-    const extra = new RegExp(`(one|two|three) (?:more|additional) ${PROJECTILE} for each spell slot level above (\\d)`, 'i').exec(h);
+    const slot = '(?:spell )?slot level above (\\d)';
+    const damage = new RegExp(`damage (?:\\([^)]*\\) )?increases by (\\d+d\\d+) for each ${slot}`, 'i').exec(h);
+    const healing = new RegExp(`healing increases by (\\d+d\\d+) for each ${slot}`, 'i').exec(h);
+    const extra = new RegExp(`(one|two|three) (?:more|additional) ${PROJECTILE} for each ${slot}`, 'i').exec(h);
     if (damage) scaling.upcast = { above: +damage[2]!, damageDice: damage[1]! };
     else if (healing) scaling.upcast = { above: +healing[2]!, healDice: healing[1]! };
     else if (extra) scaling.upcast = { above: +extra[2]!, count: NUMBER_WORDS[extra[1]!.toLowerCase()]! };
-    else if (above) notes.push(`Higher-level effect not simulated: ${h.slice(0, 100)}`);
     else notes.push(`Higher-level effect not simulated: ${h.slice(0, 100)}`);
   }
 
   if (cantrip) {
     const c = clean(cantrip);
+    const num = '(one|two|three|four|five|six|\\d)';
+    const toNum = (w: string): number => (/^\d$/.test(w) ? +w : NUMBER_WORDS[w.toLowerCase()]!);
     const damage = /damage increases by (\d+d\d+) when you reach levels? 5/i.exec(c);
-    const beams = /(one|two|three|four) beams? at level 5, (one|two|three|four|five) beams? at level 11, and (one|two|three|four|five|six) beams? at level 17/i.exec(c);
+    // "2d10 at level 5, 3d10 at level 11, ..." (the sides are those of the first number)
+    const listed = /(\d+)d(\d+)(?:\/\d+d\d+)? at level 5\b/i.exec(c);
+    const oneDie = /\b(?:one|an additional|another) die at level 5\b/i.exec(c);
+    const beams = new RegExp(`${num} beams? at level 5, ${num} beams? at level 11, and ${num} beams? at level 17`, 'i').exec(c);
+    const beamsListed = /additional beam at level 5 \((\d) beams?\), level 11 \((\d) beams?\), and level 17 \((\d) beams?\)/i.exec(c);
     if (damage) scaling.cantrip = { damageDice: damage[1]! };
-    else if (beams) scaling.cantrip = { counts: [1, ...[beams[1]!, beams[2]!, beams[3]!].map((w) => NUMBER_WORDS[w.toLowerCase()]!)] };
+    else if (beams) scaling.cantrip = { counts: [1, toNum(beams[1]!), toNum(beams[2]!), toNum(beams[3]!)] };
+    else if (beamsListed) scaling.cantrip = { counts: [1, +beamsListed[1]!, +beamsListed[2]!, +beamsListed[3]!] };
+    else if (listed) scaling.cantrip = { damageDice: `1d${listed[2]}` };
+    else if (oneDie && baseSides) scaling.cantrip = { damageDice: `1d${baseSides}` };
     else if (!/range doubles/i.test(c)) notes.push(`Cantrip upgrade not simulated: ${c.slice(0, 100)}`);
   }
 
@@ -152,7 +169,7 @@ export function parseScaling(
 }
 
 /** Work out what the spell does, if the simulator can model it. */
-function parseEffect(
+export function parseEffect(
   text: string,
   castingTime: string,
   duration: string,
@@ -177,10 +194,12 @@ function parseEffect(
   if (hasDamage && /enters? (?:the|that|an) (?:area|spell's area)|ends? (?:its|a) turn (?:there|in the)|starts? its turn (?:there|in the)|for the first time on a turn|moves? into/i.test(t)) {
     return skip('Zone or lasting area effect: not simulated');
   }
-  if (/the next time you hit|your next (?:weapon )?(?:attack|hit)/i.test(t)) return skip('Triggers on a later weapon hit: not simulated');
+  if (/the next time (?:you|the caster) hits?|your next (?:weapon )?(?:attack|hit)|upon hitting|hits? (?:a creature |the target )?with a (?:melee )?weapon attack/i.test(t)) {
+    return skip('Triggers on a later weapon hit: not simulated');
+  }
   const repeats = concentration
-    ? /at the start of each of your turns|\blater turns\b|until the spell ends,? you can (?:take|make|use)|as a bonus action,? you can (?:move|use|take)|ends? its turn within/i
-    : /at the start of each of your turns|\blater turns\b/i;
+    ? /at the start of each of (?:your|the caster's) turns|\b(?:later|subsequent) turns\b|until the spell ends,? (?:you|the caster) can (?:take|make|use)|can make the attack again|as an? (?:magic|bonus) action,? (?:you|the caster) can|ends? its turn within/i
+    : /at the start of each of (?:your|the caster's) turns|\b(?:later|subsequent) turns\b/i;
   if (repeats.test(t)) {
     return skip('Controlled or repeating effect: not simulated');
   }
@@ -197,15 +216,19 @@ function parseEffect(
   };
 
   // Attack spells: "Make a ranged spell attack... On a hit, the target takes 1d10 Fire damage."
-  const attack = /make (?:a|an|one) (ranged|melee) spell attack/i.exec(t);
+  const attack = /\b(ranged|melee) spell attack\b/i.exec(t);
   if (attack) {
     const afterHit = t.slice(Math.max(0, t.search(/on a hit/i)));
-    const damage = parseSpellDamage(afterHit.slice(afterHit.search(/\d+d\d+/) >= 0 ? afterHit.search(/\d+d\d+/) : 0));
+    // The damage usually follows "On a hit"; some texts put it before ("..., 1d8 fire damage on a hit").
+    const fromDice = (s: string): string => s.slice(Math.max(0, s.search(/\d+d\d+/)));
+    const damage = [afterHit, t.slice(attack.index)]
+      .map((s) => parseSpellDamage(fromDice(s)))
+      .find((d) => d.length > 0) ?? [];
     if (damage.length === 0) {
       notes.push('Attack spell without parseable damage');
       return undefined;
     }
-    const count = new RegExp(`(?:hurl|create|conjure|send|fire|launch|release) (?:up to )?(one|two|three|four|five|six|seven|eight|nine) [\\w -]*?${PROJECTILE}`, 'i').exec(t);
+    const count = new RegExp(`(?:hurls?|creates?|conjures?|sends?|fires?|launch(?:es)?|releases?) (?:up to )?(one|two|three|four|five|six|seven|eight|nine) [\\w -]*?${PROJECTILE}`, 'i').exec(t);
     const effects = spellConditions(afterHit, undefined, duration);
     note();
     return {
@@ -239,7 +262,7 @@ function parseEffect(
     const block = saveBlock(t, save.index);
     const damage = parseSpellDamage(block.slice(Math.max(0, block.search(DAMAGE_ANYWHERE))));
     // A repeat-save clause is often its own sentence after the save block.
-    const repeat = t.split(/(?<=[.!?])\s+(?=[A-Z])/).filter((s) => /\brepeats? the save\b/i.test(s) && !block.includes(s));
+    const repeat = t.split(/(?<=[.!?])\s+(?=[A-Z])/).filter((s) => /\brepeats? the (?:save|saving throw)\b/i.test(s) && !block.includes(s));
     const effects = spellConditions([block, ...repeat].join(' '), ability, duration);
     if (damage.length === 0 && effects.length === 0) return skip('Saving throw effect not simulated');
     const area = /\beach creature\b/i.test(block.slice(0, 160)) ? parseArea(t) : undefined;
@@ -248,7 +271,7 @@ function parseEffect(
       kind: 'save',
       ability,
       damage,
-      halfOnSave: /half as much damage|half the initial damage|takes half/i.test(block),
+      halfOnSave: /half as much|half the initial damage|takes half|half damage/i.test(block),
       ...(area ? { area } : {}),
       ...(effects.length ? { effects } : {}),
       ...(scaling ? { scaling } : {}),
@@ -256,7 +279,7 @@ function parseEffect(
   }
 
   // Healing spells.
-  const heal = /regains? (?:a number of )?Hit Points equal to (\d+d\d+(?:\s*[+-]\s*\d+)?)(\s+plus your spellcasting ability modifier)?/i.exec(t);
+  const heal = /regains? (?:a number of )?Hit Points equal to (\d+d\d+(?:\s*[+-]\s*\d+)?)(\s+plus (?:your|the caster's) spellcasting ability modifier)?/i.exec(t);
   if (heal) {
     note();
     return { kind: 'heal', dice: heal[1]!.replace(/\s+/g, ''), addsModifier: !!heal[2], ...(scaling ? { scaling } : {}) };
@@ -269,6 +292,13 @@ function parseEffect(
 
   return undefined;
 }
+
+/**
+ * Summons and walls create something that acts or lasts on its own, and smites ride on a weapon
+ * attack: none of these are modelled.
+ */
+export const excludedByName = (name: string): boolean => /^(?:Conjure|Summon|Animate|Find|Create|Simulacrum)\b|\b(?:Wall|Barrier|Smite)\b/.test(name);
+export const EXCLUDED_BY_NAME_NOTE = 'Summon, wall, barrier or smite: not simulated';
 
 export interface ParsedSpell {
   def: SpellDef;
@@ -311,10 +341,8 @@ export function parseSpellBlock(lines: readonly string[]): ParsedSpell {
   const concentration = /Concentration/i.test(duration);
   const notes: string[] = [];
   const scaling = parseScaling(higher, cantripUpgrade, notes);
-  // Summons and walls create something that acts or lasts on its own, and smites ride on a weapon
-  // attack: none of these are modelled.
-  const effect = /^(?:Conjure|Summon|Animate|Find|Create|Simulacrum)\b|\b(?:Wall|Barrier|Smite)\b/.test(name)
-    ? (notes.push('Summon, wall, barrier or smite: not simulated'), undefined)
+  const effect = excludedByName(name)
+    ? (notes.push(EXCLUDED_BY_NAME_NOTE), undefined)
     : parseEffect(text, castingTime, duration, concentration, scaling, notes);
 
   const def: SpellDef = {

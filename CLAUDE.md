@@ -117,7 +117,7 @@ spellcasting modifier, which the PDF import will read from the character sheet.
   - Fields the parser can't read reliably can be filled in or overridden by hand.
   - A manual character form and JSON import are the fallbacks if a PDF fails to parse.
   - Imported characters are kept in the browser (local storage) only.
-- The author's personal markdown library (characters, monsters, spells, conditions, weapon mastery) is converted to JSON by a build script for private use only. That output is gitignored and never deployed.
+- The author's personal markdown library (characters, monsters, spells, conditions, weapon mastery) is converted to JSON by a build script for private use only. That output is gitignored and never deployed. Built with `npm run data:private`; served by a dev-only Vite middleware or loaded through "Load private data" into IndexedDB. See `docs/private-data.md`.
 
 ## PDF format findings (from 4 real exports)
 Test files live in `projects\battle-sim\test characters\`: Lady Moonfire (Cleric 4), Curuvar the Brazen (Wizard 4), Haydon Hallowedridge (Paladin 4), Lucien Kaelis (Cleric 1 / Wizard 3, multiclass). Four PDFs is a small sample, so the parser must fail soft.

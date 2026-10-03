@@ -23,7 +23,8 @@ import type { SpellDef } from '../data/spellTypes';
 import { ABILITIES, SIZES } from '../engine/types';
 
 export interface PartyPanelDeps {
-  spells: SpellDef[];
+  /** The spell library (SRD plus any private data); read each time, since private data can load later. */
+  spells(): SpellDef[];
   /** The party saved from an earlier visit. */
   initial: Character[];
   /** Called after every change with the whole party (empty means "use the demo party"). */
@@ -39,7 +40,7 @@ function flag(c: Character, key: string): string {
   return v === 'low' ? 'low' : v === 'missing' ? 'missing' : '';
 }
 
-export function createPartyPanel(root: HTMLElement, deps: PartyPanelDeps): void {
+export function createPartyPanel(root: HTMLElement, deps: PartyPanelDeps): { refresh(): void } {
   const chars: Character[] = [...deps.initial];
   let editing: string | undefined;
   let messages: string[] = [];
@@ -71,7 +72,7 @@ export function createPartyPanel(root: HTMLElement, deps: PartyPanelDeps): void 
     `<label class="f ${flag(c, key)}">${label}<input data-f="${key}" type="${type}" value="${esc(value)}" ${extra} /></label>`;
 
   function editorHtml(c: Character): string {
-    const converted = characterToCombatant(c, deps.spells);
+    const converted = characterToCombatant(c, deps.spells());
     const warnings = [...c.warnings, ...converted.warnings.filter((w) => !c.warnings.includes(w))];
     const casters = c.spellcasting
       .map(
@@ -83,7 +84,7 @@ export function createPartyPanel(root: HTMLElement, deps: PartyPanelDeps): void 
       .join('');
     const filter = spellFilter.toLowerCase();
     const spells = c.spells
-      .map((s, i) => ({ s, i, def: findSpell(deps.spells, s.name) }))
+      .map((s, i) => ({ s, i, def: findSpell(deps.spells(), s.name) }))
       .filter(({ s }) => !filter || s.name.toLowerCase().includes(filter))
       .sort((a, b) => (a.def?.level ?? a.s.level) - (b.def?.level ?? b.s.level) || a.s.name.localeCompare(b.s.name))
       .map(({ s, i, def }) => {
@@ -137,7 +138,7 @@ export function createPartyPanel(root: HTMLElement, deps: PartyPanelDeps): void 
       <div class="row slots">${[1, 2, 3, 4, 5, 6, 7, 8, 9].map((l) => `<label class="${flag(c, 'slots')}">L${l} <input data-f="slot" data-i="${l}" type="number" min="0" max="9" value="${c.slots[l] ?? ''}" /></label>`).join('')}</div>
       ${
         c.spells.length
-          ? `<div class="row between"><h4>Spells used in the fight</h4><input data-f="spellFilter" type="search" placeholder="Filter spells" value="${esc(spellFilter)}" /></div>
+          ? `<div class="row between"><h4>Spells used in the fight <button data-act="suggest">Suggest combat spells</button></h4><input data-f="spellFilter" type="search" placeholder="Filter spells" value="${esc(spellFilter)}" /></div>
              <div class="spells">${spells || '<p class="muted">No spells match.</p>'}</div>`
           : ''
       }
@@ -190,7 +191,7 @@ export function createPartyPanel(root: HTMLElement, deps: PartyPanelDeps): void 
             messages.push(`${file.name}: not a D&D Beyond character sheet with form fields. Use "Add by hand" for this character.`);
             continue;
           }
-          const added = addCharacter(selectCombatSpells(character, deps.spells));
+          const added = addCharacter(selectCombatSpells(character, deps.spells()));
           const missing = missingRequired(added);
           messages.push(`${added.name}: imported${missing.length ? `. Needs attention: ${missing.join(', ')}` : ''}.`);
           if (missing.length && !reviewId) reviewId = added.id;
@@ -276,6 +277,14 @@ export function createPartyPanel(root: HTMLElement, deps: PartyPanelDeps): void 
       case 'done':
         editing = undefined;
         render();
+        break;
+      case 'suggest':
+        if (c) {
+          const i = chars.indexOf(c);
+          chars[i] = selectCombatSpells(c, deps.spells());
+          changed();
+          render();
+        }
         break;
       case 'add-attack':
         if (c) {
@@ -373,4 +382,10 @@ export function createPartyPanel(root: HTMLElement, deps: PartyPanelDeps): void 
 
   render();
   deps.onChange(chars);
+  return {
+    refresh() {
+      render();
+      deps.onChange(chars);
+    },
+  };
 }

@@ -85,11 +85,11 @@ export function requiredTargetCondition(text: string): ConditionName | null {
   return null;
 }
 
-const COND_RE = new RegExp(`\\b(?:has|have|is|are|becomes?)\\s+(?:the\\s+)?(${COND_NAMES})(?:\\s+and\\s+(${COND_NAMES}))?(?:\\s+conditions?)?`, 'gi');
+const COND_RE = new RegExp(`\\b(?:has|have|is|are|becomes?|gains?|gained)\\s+(?:the\\s+)?(${COND_NAMES})(?:\\s+and\\s+(${COND_NAMES}))?(?:\\s+conditions?)?`, 'gi');
 
 function parseDuration(tail: string, save: SaveContext | undefined): { duration: Duration; repeatSave?: SaveContext; escapeDc?: number } {
   const escape = /\(escape DC (\d+)\)/i.exec(tail);
-  const repeats = /\brepeats? the save\b/i.test(tail) && save ? { repeatSave: save } : {};
+  const repeats = /\brepeats? the (?:save|saving throw)\b/i.test(tail) && save ? { repeatSave: save } : {};
   const extra = { ...repeats, ...(escape ? { escapeDc: +escape[1]! } : {}) };
 
   if (/until the grapple ends/i.test(tail)) return { duration: { kind: 'while', condition: 'grappled' }, ...extra };
@@ -165,7 +165,7 @@ export function parseConditionEffects(text: string, save?: SaveContext): Conditi
   // "...have the Paralyzed condition. At the end of each of its turns, the target repeats the save":
   // the repeat is in a later sentence. With a single condition it clearly belongs to it.
   const [only] = out;
-  if (out.length === 1 && only && !only.repeatSave && save && /\b(?:the target|it) repeats? the save\b/i.test(t)) {
+  if (out.length === 1 && only && !only.repeatSave && save && /\b(?:the target|it) repeats? the (?:save|saving throw)\b/i.test(t)) {
     only.repeatSave = save;
   }
   return out;
@@ -336,7 +336,9 @@ export function classifyActions(
     }
     // Swallowing, engulfing and possession change a creature's whole state (damage each turn,
     // total cover, ...), which is not modelled: leave them unsimulated.
-    if (/swallow|engulf|possess/i.test(f.text) || base === 'Attach') {
+    // (An ordinary attack roll that merely mentions a swallowed corpse is still an attack.)
+    const isAttackRoll = /Attack Roll:\s*[+-]\d+/.test(f.text);
+    if ((/swallow|engulf|possess/i.test(f.text) && !isAttackRoll) || base === 'Attach') {
       otherActions.push(f);
       continue;
     }

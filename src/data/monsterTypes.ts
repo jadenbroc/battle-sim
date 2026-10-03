@@ -58,4 +58,6 @@ export interface MonsterDef {
   otherActions: MonsterFeature[];
   /** Data-quality notes, e.g. resistances that depend on nonmagical weapons. */
   notes: string[];
+  /** Set on monsters from the user's own private data (never part of the bundled SRD library). */
+  private?: true;
 }

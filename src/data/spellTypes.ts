@@ -91,4 +91,6 @@ export interface SpellDef {
   effect?: SpellEffect;
   /** Why a spell has no effect, or which parts of it are not simulated. */
   notes: string[];
+  /** Set on spells from the user's own private data (never part of the bundled SRD library). */
+  private?: true;
 }

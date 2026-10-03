@@ -20,6 +20,8 @@ import { missingRequired } from './character/parseCharacterSheet';
 import { loadParty } from './character/storage';
 import { characterToCombatant } from './character/toCombatant';
 import type { SpellDef } from './data/spellTypes';
+import { mergeMonsters, mergeSpells, parsePrivateData, type PrivateData } from './data/privateData';
+import { clearStoredPrivateData, fetchDevPrivateData, loadStoredPrivateData, saveStoredPrivateData } from './data/privateStore';
 import { loadSrdSpells } from './data/spells';
 import type { Combatant } from './engine/types';
 import { sampleParty } from './sample';
@@ -42,6 +44,17 @@ app.innerHTML = `
   </header>
 
   <section class="card" id="party"></section>
+
+  <section class="card" id="private">
+    <div class="row">
+      <strong>Private data</strong>
+      <button id="private-load">Load private data</button>
+      <button id="private-remove" hidden>Remove</button>
+      <input id="private-input" type="file" accept="application/json,.json" hidden />
+      <span id="private-status" class="muted"></span>
+    </div>
+    <p class="hint">Your own spells and monsters (built with <code>npm run data:private</code>). Kept in this browser only; never uploaded.</p>
+  </section>
 
   <section class="card">
     <div class="row between">
@@ -111,6 +124,8 @@ seedInput.value = Math.random().toString(36).slice(2, 8);
 const escapeHtml = (s: string): string =>
   s.replace(/[&<>"]/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[ch]!);
 
+let srdSpells: SpellDef[] = [];
+let srdMonsters: MonsterDef[] = [];
 let spells: SpellDef[] = [];
 let characters: Character[] = []; // the imported party; empty means "use the demo party"
 let party: Combatant[] = sampleParty();
@@ -349,18 +364,72 @@ $('bulk').addEventListener('click', () => {
   w.postMessage(request);
 });
 
+// ----- Private data -----
+
+let panel: { refresh(): void } | undefined;
+
+function applyPrivate(data: PrivateData | undefined, source: string): void {
+  spells = data ? mergeSpells(srdSpells, data.spells) : srdSpells;
+  library = data ? mergeMonsters(srdMonsters, data.monsters) : srdMonsters;
+  $('private-status').textContent = data
+    ? `${source}: ${spells.length - srdSpells.length} spells and ${library.length - srdMonsters.length} monsters added.`
+    : 'None loaded: SRD only.';
+  $('private-remove').hidden = !data || source === 'Dev server';
+  $<HTMLSelectElement>('type').innerHTML =
+    '<option value="">All types</option>' + monsterTypes(library).map((t) => `<option value="${t}">${t}</option>`).join('');
+  renderMonsterList();
+  if (panel) panel.refresh();
+  else groupChanged();
+}
+
+$('private-load').addEventListener('click', () => $<HTMLInputElement>('private-input').click());
+$('private-input').addEventListener('change', (e) => {
+  const input = e.target as HTMLInputElement;
+  const file = input.files?.[0];
+  input.value = '';
+  if (!file) return;
+  void file.text().then(async (text) => {
+    const parsed = parsePrivateData(text);
+    if (!parsed.ok) {
+      $('private-status').textContent = `${file.name}: ${parsed.error}.`;
+      return;
+    }
+    try {
+      await saveStoredPrivateData(text);
+    } catch {
+      /* still usable for this visit */
+    }
+    applyPrivate(parsed.data, 'Loaded');
+  });
+});
+$('private-remove').addEventListener('click', () => {
+  void clearStoredPrivateData().then(() => applyPrivate(undefined, ''));
+});
+
 // ----- Start -----
 
 Promise.all([loadSrdMonsters(), loadSrdSpells()]).then(
-  ([monsters, loadedSpells]) => {
-    library = monsters;
-    spells = loadedSpells;
+  async ([monsters, loadedSpells]) => {
+    srdMonsters = monsters;
+    srdSpells = loadedSpells;
+    spells = srdSpells;
+    library = srdMonsters;
+    // Dev server file first (it is the freshest build), then what was loaded into this browser.
+    const dev = await fetchDevPrivateData();
+    const stored = dev ? undefined : await loadStoredPrivateData();
+    const data = dev ?? stored;
+    spells = data ? mergeSpells(srdSpells, data.spells) : srdSpells;
+    library = data ? mergeMonsters(srdMonsters, data.monsters) : srdMonsters;
+    $('private-status').textContent = data
+      ? `${dev ? 'Dev server' : 'Loaded'}: ${spells.length - srdSpells.length} spells and ${library.length - srdMonsters.length} monsters added.`
+      : 'None loaded: SRD only.';
+    $('private-remove').hidden = !stored;
     $<HTMLSelectElement>('type').innerHTML =
       '<option value="">All types</option>' + monsterTypes(library).map((t) => `<option value="${t}">${t}</option>`).join('');
     renderMonsterList();
     // The panel reports the saved party straight away, which builds the first fight.
-    createPartyPanel($('party'), {
-      spells,
+    panel = createPartyPanel($('party'), {
+      spells: () => spells,
       initial: loadParty(),
       onChange: (chars) => {
         characters = [...chars];

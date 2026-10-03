@@ -431,3 +431,142 @@ select {
 .event.skip {
   color: var(--muted);
 }
+/* ----- Party panel ----- */
+
+.row.caster,
+.row.attack,
+.row.slots {
+  margin: 4px 0;
+}
+
+.row.attack input:first-child {
+  flex: 1 1 140px;
+  min-width: 0;
+  margin-left: 0;
+}
+
+.row.attack input[type='number'] {
+  width: 64px;
+}
+
+.row.attack input:nth-child(3) {
+  flex: 1 1 160px;
+  min-width: 0;
+}
+
+.row.slots input {
+  width: 56px;
+}
+
+.fgrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 8px;
+  margin: 8px 0;
+}
+
+.fgrid.six {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+}
+
+@media (max-width: 720px) {
+  .fgrid.six {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+.f {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.f input,
+.f select {
+  margin-left: 0;
+  width: 100%;
+  color: var(--text);
+  font-size: 0.95rem;
+}
+
+.f.low input,
+.f.low select {
+  border-color: var(--warn);
+  box-shadow: 0 0 0 1px var(--warn);
+}
+
+.f.missing input,
+.f.missing select,
+input.missing {
+  border-color: var(--bad);
+  box-shadow: 0 0 0 1px var(--bad);
+}
+
+.row.slots label.missing input {
+  border-color: var(--bad);
+}
+
+input.bad,
+select.bad {
+  border-color: var(--bad);
+  box-shadow: 0 0 0 1px var(--bad);
+}
+
+.editor {
+  margin-top: 12px;
+  background: var(--bg);
+}
+
+.editor h3 {
+  margin: 0;
+  font-size: 1rem;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--text);
+}
+
+.editor h4 {
+  margin: 14px 0 4px;
+  font-size: 0.9rem;
+}
+
+.messages {
+  margin: 8px 0;
+  padding-left: 18px;
+  font-size: 0.85rem;
+}
+
+.needs {
+  display: block;
+  font-size: 0.8rem;
+  color: var(--bad);
+}
+
+.spells {
+  max-height: 260px;
+  overflow-y: auto;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 4px 8px;
+}
+
+.spell {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 2px 0;
+}
+
+.spell input {
+  margin: 0;
+}
+
+.spell .muted {
+  font-size: 0.8rem;
+}
+
+.spell.dim {
+  opacity: 0.55;
+}

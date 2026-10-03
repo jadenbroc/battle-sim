@@ -15,8 +15,15 @@ import {
   searchMonsters,
   type GroupEntry,
 } from './data/monsters';
+import type { Character } from './character/characterTypes';
+import { missingRequired } from './character/parseCharacterSheet';
+import { loadParty } from './character/storage';
+import { characterToCombatant } from './character/toCombatant';
+import type { SpellDef } from './data/spellTypes';
 import { loadSrdSpells } from './data/spells';
+import type { Combatant } from './engine/types';
 import { sampleParty } from './sample';
+import { createPartyPanel } from './ui/partyPanel';
 import { formatEvent, viewAt, type FighterView } from './ui/replay';
 
 const CR_STEPS: [string, number][] = [
@@ -31,8 +38,10 @@ const app = document.querySelector<HTMLDivElement>('#app')!;
 app.innerHTML = `
   <header>
     <h1>Battle Sim</h1>
-    <p class="sub">Demo party (Fighter, Cleric, Wizard) vs. a group of SRD 5.2 monsters. All rolls come from a seeded RNG.</p>
+    <p class="sub">Your party (or the demo party) vs. a group of SRD 5.2 monsters. All rolls come from a seeded RNG.</p>
   </header>
+
+  <section class="card" id="party"></section>
 
   <section class="card">
     <div class="row between">
@@ -102,7 +111,9 @@ seedInput.value = Math.random().toString(36).slice(2, 8);
 const escapeHtml = (s: string): string =>
   s.replace(/[&<>"]/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[ch]!);
 
-let party = sampleParty(); // replaced by a party with real SRD spells once those load
+let spells: SpellDef[] = [];
+let characters: Character[] = []; // the imported party; empty means "use the demo party"
+let party: Combatant[] = sampleParty();
 let library: MonsterDef[] = [];
 let group: GroupEntry[] = [{ id: 'goblin-warrior', count: 4 }];
 let config: FightConfig = { combatants: party };
@@ -166,9 +177,17 @@ function renderGroup(): void {
   $('warnings-body').innerHTML = notes.join('');
 }
 
+/** The party for the fight: the imported characters that are complete, or the demo party. */
+function currentParty(): Combatant[] {
+  if (characters.length === 0) return sampleParty(spells);
+  return characters.filter((c) => missingRequired(c).length === 0).map((c) => characterToCombatant(c, spells).combatant);
+}
+
+/** The party or the enemy group changed: rebuild the fight and clear what was showing. */
 function groupChanged(): void {
   stopPlaying();
   worker?.terminate();
+  party = currentParty();
   const { combatants } = buildEnemyGroup(library, group);
   config = { combatants: [...party, ...combatants] };
   log = [];
@@ -176,8 +195,9 @@ function groupChanged(): void {
   $('fight').hidden = true;
   $('results').innerHTML = '';
   $('progress').textContent = '';
-  $<HTMLButtonElement>('bulk').disabled = combatants.length === 0;
-  $<HTMLButtonElement>('run').disabled = combatants.length === 0;
+  const ready = combatants.length > 0 && party.length > 0;
+  $<HTMLButtonElement>('bulk').disabled = !ready;
+  $<HTMLButtonElement>('run').disabled = !ready;
   renderGroup();
 }
 
@@ -332,13 +352,21 @@ $('bulk').addEventListener('click', () => {
 // ----- Start -----
 
 Promise.all([loadSrdMonsters(), loadSrdSpells()]).then(
-  ([monsters, spells]) => {
+  ([monsters, loadedSpells]) => {
     library = monsters;
-    party = sampleParty(spells);
+    spells = loadedSpells;
     $<HTMLSelectElement>('type').innerHTML =
       '<option value="">All types</option>' + monsterTypes(library).map((t) => `<option value="${t}">${t}</option>`).join('');
     renderMonsterList();
-    groupChanged();
+    // The panel reports the saved party straight away, which builds the first fight.
+    createPartyPanel($('party'), {
+      spells,
+      initial: loadParty(),
+      onChange: (chars) => {
+        characters = [...chars];
+        groupChanged();
+      },
+    });
     $('run').click();
   },
   (err: unknown) => {

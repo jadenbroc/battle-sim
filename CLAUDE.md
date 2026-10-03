@@ -111,7 +111,7 @@ spellcasting modifier, which the PDF import will read from the character sheet.
 - Bundled content: **SRD 5.2 only** (CC-BY 4.0, with required attribution in the site footer).
 - No books-you-own content (D&D Beyond) is shipped, since the site is public.
 - Users can **import their own data** (JSON, plus a documented format) for characters, monsters, spells, and items. Imported data stays in the user's browser.
-- **Character import from D&D Beyond PDF:** users upload the character sheet PDF exported from D&D Beyond (e.g. `{character}.pdf`). Parsing happens entirely in the browser (pdf.js, reading the positioned text on each page; the PDFs have no form fields, see "PDF format findings" below), so no file is ever uploaded to a server.
+- **Character import from D&D Beyond PDF:** users upload the character sheet PDF exported from D&D Beyond (e.g. `{character}.pdf`). Parsing happens entirely in the browser (pdf.js, reading the sheet's fillable form fields; see "PDF format findings" below), so no file is ever uploaded to a server.
   - Up to **8 characters** can be loaded at once (the party cap).
   - Each import is shown in a review screen (ability scores, AC, HP, attacks, spell DCs, resistances, features) so the user can correct anything the parser got wrong before it is used.
   - Fields the parser can't read reliably can be filled in or overridden by hand.
@@ -123,8 +123,9 @@ spellcasting modifier, which the PDF import will read from the character sheet.
 Test files live in `projects\battle-sim\test characters\`: Lady Moonfire (Cleric 4), Curuvar the Brazen (Wizard 4), Haydon Hallowedridge (Paladin 4), Lucien Kaelis (Cleric 1 / Wizard 3, multiclass). Four PDFs is a small sample, so the parser must fail soft.
 
 **Structure**
-- 4 to 6 pages. **No form fields**: all data is plain text placed by position, so the parser reads pdf.js text items with coordinates and groups them by region (header, abilities and skills, combat box, attacks table, spell tables).
-- Page order: (1) main sheet, (2+) features, traits and equipment (a long character spills onto an extra page, as the multiclass one does), then the background page (mostly empty), then one spell page per spellcasting class pair. The page count varies, so locate sections by their printed headings (`CLASS & LEVEL`, `SPELLS`, `=== CANTRIPS ===`), never by page number.
+- 4 to 6 pages. **The sheets are fillable forms.** (An earlier version of this note said there were no form fields. That was wrong: pdf.js text extraction returns only the printed labels, but the character data is in named Widget fields, which `page.getAnnotations()` returns.) The parser reads those fields by name: `CharacterName`, `CLASS  LEVEL`, `STR`, `ST Strength`, `AC`, `MaxHP`, `Total` (hit dice), `Init`, `Defenses`, `SIZE`, `Wpn Name` / `Wpn1 AtkBonus` / `Wpn1 Damage` / `Wpn Notes 1`, and on the spell pages `spellName0`, `spellSource0`, `spellSaveHit0`, `spellCastingTime0`, `spellPrepared0`, `spellPage0`, `spellHeader0`, `spellSlotHeader0`, `spellCastingClass0`, `spellCastingAbility0`, `spellSaveDC0`, `spellAtkBonus0`. Some names have stray spaces (`Wpn2 AtkBonus `, `CLASS  LEVEL`), which are normalized.
+- Spell levels are not a field: each spell sits under a section header field (`=== 1st LEVEL ===`), so a spell's level is that of the last header above it by position (page, then y), and a second spell page with no header of its own continues the last section. Page count varies, so never rely on page numbers.
+- A PDF with no such fields (not a D&D Beyond sheet, or a changed layout) is reported as unreadable and the user is pointed to the manual form.
 
 **Readable directly from the PDF**
 - Name, species, background, class and level (`Cleric 1 / Wizard 3` for multiclass).
@@ -160,10 +161,32 @@ Test files live in `projects\battle-sim\test characters\`: Lady Moonfire (Cleric
 - Unit tests for the rules engine (dice, attacks, saves, damage, conditions) from the start.
 - Hosting: GitHub Pages or Netlify.
 
+## Character import (implemented)
+`src/character/` reads the sheet (`pdfFields.ts`, `parseCharacterSheet.ts`), picks default combat
+spells (`combatSpells.ts`), and converts a character to a combatant (`toCombatant.ts`). The party
+panel (`src/ui/partyPanel.ts`) imports up to 8 PDFs, shows a review screen with unclear fields
+highlighted and editable, and keeps the party in local storage. Fallbacks: add by hand, JSON import
+and export (`docs/character-format.md`).
+- Duplicate spells (2014 and 2024 versions, or one spell under two names such as "Melf's Acid Arrow"
+  and "Acid Arrow") are merged, preferring 2024. The SRD level wins over the sheet's header.
+- Each spell uses its own save DC or attack bonus from the sheet; healing uses the casting class's
+  ability modifier (the class named in the spell's source, e.g. `Magic Initiate (Wizard)`).
+- Default combat spells: the two best damage cantrips, the four best damage spells and two best heals
+  the character has slots for, and always-prepared spells that have a simulated effect. The review
+  screen lets the user tick others.
+- Extra Attack is inferred from the features text (2 attacks, 3 for a Fighter 11, 4 for a Fighter 20)
+  and flagged for checking.
+- Spells that list a save or an attack bonus but are not in the SRD library (Toll the Dead, Mind
+  Sliver, ...) are reported on the review screen and are not simulated. Private spell data from the
+  author's own library is a possible next step.
+- Not simulated: class feature mechanics (Divine Smite, Lay on Hands, Channel Divinity), weapon
+  mastery, and any spell the SRD library lacks.
+
 ## Open items
-- Data import format and validation.
-- PDF parser: sample exports now reviewed (see "PDF format findings"). Still missing a sample with damage resistances or vulnerabilities, a character with Extra Attack and two weapons, and a non-caster martial class, so those cases are untested. D&D Beyond can change its PDF layout, so the parser needs tests and a graceful failure path.
-- How the review screen lets users choose combat spells and fill in spell data that isn't in the SRD.
+- PDF parser: still missing sample sheets with a martial character that has Extra Attack and two
+  weapons, and one with damage vulnerabilities, so those cases are only tested with synthetic sheets.
+  D&D Beyond can change its PDF layout; an unreadable sheet falls back to the manual form.
+- Spells and class features that are not in the SRD (the author's own books) need a private data path.
 - Project name.
 
 ## Handoff to Claude Code

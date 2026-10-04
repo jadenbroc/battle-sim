@@ -72,11 +72,24 @@ export function rollModAverage(c: Creature, kind: 'attack' | 'save'): number {
   return total;
 }
 
+/** Start of a creature's turn: effects that last until then end (Shield), and its reaction is back. */
+export function startOwnTurn(c: Creature): Released[] {
+  delete c.reactionUsed;
+  const ended: Released[] = [];
+  for (const m of [...(c.rollMods ?? [])]) {
+    if (!m.untilOwnTurn) continue;
+    c.rollMods = (c.rollMods ?? []).filter((x) => x !== m);
+    ended.push({ target: c.name, condition: m.name });
+  }
+  return ended;
+}
+
 /** Start of a round: count down roll modifiers. Returns those that ran out. */
 export function tickRollMods(creatures: readonly Creature[]): Released[] {
   const ended: Released[] = [];
   for (const c of creatures) {
     for (const m of [...(c.rollMods ?? [])]) {
+      if (m.untilOwnTurn) continue;
       m.roundsLeft -= 1;
       if (m.roundsLeft <= 0) {
         c.rollMods = (c.rollMods ?? []).filter((x) => x !== m);

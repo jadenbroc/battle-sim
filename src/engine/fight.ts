@@ -1,6 +1,7 @@
 import {
   activeNames,
   applyCondition,
+  armorClass,
   canAct,
   canStandUp,
   d20Penalty,
@@ -11,17 +12,18 @@ import {
   tickRounds,
   type Removal,
 } from './conditions';
-import { creatureSave, performAttack, performSave, type AttackEvent, type SaveEvent } from './combat';
-import { addRollMod, concentrationDc, mustStop, releaseConcentration, tickRollMods, type ConcentrationEndReason, type Released } from './concentration';
-import { rollD20, rollDice } from './dice';
+import { creatureSave, performAttack, performSave, type AttackEvent, type ReactionHook, type SaveEvent } from './combat';
+import { addRollMod, concentrationDc, mustStop, startOwnTurn, releaseConcentration, tickRollMods, type ConcentrationEndReason, type Released } from './concentration';
+import { averageDice, rollD20, rollDice } from './dice';
 import { heal, rollDeathSave, type DeathSaveResult } from './hp';
 import type { Rng } from './rng';
-import { chooseTarget, planExtraAttack, planTurn, targetsFor, type Plan } from './tactics';
+import { chooseTarget, planExtraAttack, planTurn, targetsFor, usableOptions, type Plan } from './tactics';
 import {
   abilityMod,
   attackSequence,
   hasUses,
   initialUses,
+  type AttackOption,
   type Combatant,
   type ConditionName,
   type UseLimit,
@@ -35,6 +37,9 @@ export interface FightOptions {
   /** Fights reaching this many rounds count as a stalemate. */
   roundCap: number;
 }
+
+/** A creature spends a slot on a defensive reaction (Shield) only when the hit would take this share of its max HP. */
+const REACTION_MIN_HIT = 0.1;
 
 export const DEFAULT_OPTIONS: FightOptions = { areaTargets: 3, groupInitiative: false, roundCap: 30 };
 
@@ -54,6 +59,7 @@ export type LogEvent =
   | SaveEvent
   | { kind: 'heal'; actor: string; target: string; option: string; amount: number }
   | { kind: 'buff'; actor: string; target: string; option: string }
+  | { kind: 'reaction'; actor: string; option: string }
   | ({ kind: 'death-save'; actor: string } & DeathSaveResult)
   | { kind: 'recharge'; actor: string; option: string; roll: number; success: boolean }
   | { kind: 'condition-end'; target: string; condition: ConditionName; reason: ConditionEndReason }
@@ -218,6 +224,30 @@ export function runFight(config: FightConfig, rng: Rng, opts: { log?: boolean } 
     push(round, { kind: 'concentration-start', actor: actor.creature.name, spell, ...(replaced ? { replaced } : {}) });
   };
 
+  /**
+   * The target's chance to answer an attack with Shield: once per round, when the extra AC turns this hit
+   * into a miss and the hit is big enough to matter, or when Magic Missile is cast at it.
+   */
+  const reactionFor = (round: number, target: Combatant, option: AttackOption): ReactionHook => (trigger) => {
+    const c = target.creature;
+    if (c.reactionUsed || !canAct(c)) return false;
+    const reaction = usableOptions((target.buffs ?? []).filter((b) => b.reaction), target.slots, target)[0];
+    if (!reaction) return false;
+    if (trigger.kind === 'hit') {
+      const hitDamage = option.damage.reduce((sum, d) => sum + Math.max(0, averageDice(d.dice)), 0);
+      if (trigger.total >= armorClass(c) + (reaction.rollModifier.acBonus ?? 0) || hitDamage < REACTION_MIN_HIT * c.maxHp) return false;
+    } else if (!reaction.rollModifier.blocksMagicMissile) return false;
+    const name = reaction.spell ?? reaction.name;
+    spend(target, reaction);
+    c.reactionUsed = true;
+    addRollMod(c, reaction.rollModifier, name, c.id, false);
+    push(round, { kind: 'reaction', actor: c.name, option: name });
+    return true;
+  };
+
+  const strike = (round: number, actor: Combatant, option: AttackOption, target: Combatant): AttackEvent =>
+    performAttack(rng, actor.creature, option, target.creature, {}, reactionFor(round, target, option));
+
   const execute = (round: number, actor: Combatant, plan: Plan): void => {
     if (plan.kind === 'heal') {
       spend(actor, plan.action);
@@ -260,7 +290,7 @@ export function runFight(config: FightConfig, rng: Rng, opts: { log?: boolean } 
       if (checkEnd(fighters)) break;
       const target = i === 0 ? plan.target : chooseTarget(actor.profile, targetsFor(actor, enemies), rng);
       if (!target) break;
-      const e = performAttack(rng, actor.creature, attacks[i]!, target.creature);
+      const e = strike(round, actor, attacks[i]!, target);
       addDamage(actor, e.totalDamage);
       push(round, e);
       concentrationCheck(round, target, e.totalDamage);
@@ -275,7 +305,7 @@ export function runFight(config: FightConfig, rng: Rng, opts: { log?: boolean } 
         const next = chooseTarget(actor.profile, targetsFor(actor, enemies).filter((f) => !done.has(f.creature.id)), rng);
         if (!next) break;
         done.add(next.creature.id);
-        const e = performAttack(rng, actor.creature, plan.action.attack, next.creature);
+        const e = strike(round, actor, plan.action.attack, next);
         addDamage(actor, e.totalDamage);
         push(round, e);
         concentrationCheck(round, next, e.totalDamage);
@@ -341,6 +371,7 @@ export function runFight(config: FightConfig, rng: Rng, opts: { log?: boolean } 
       const c = actor.creature;
       if (c.status === 'dead' || c.status === 'stable') continue;
       turnOf = c.id;
+      for (const m of startOwnTurn(c)) push(round, { kind: 'modifier-end', target: m.target, name: m.condition });
 
       logRemovals(round, expireAt(creatures, c.id, 'start'), 'expired');
 

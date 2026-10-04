@@ -89,7 +89,7 @@ The bundled SRD 5.2.1 spell library (339 spells) lives in `src/data/srd-spells.j
 `npm run data:build`; see `docs/spell-format.md`. A spell stores what it does (attack, save, heal, the
 conditions it inflicts, and how it scales); the caster supplies the save DC, attack bonus and
 spellcasting modifier, which the PDF import will read from the character sheet.
-- 42 damaging spells, 5 healing spells and 4 effect spells (Bane, Bless, Shield of Faith, Haste) are simulated. Spells with no effect (reactions, summons,
+- 42 damaging spells, 5 healing spells and 5 effect spells (Bane, Bless, Shield of Faith, Haste, Shield) are simulated. Spells with no effect (reactions, summons,
   walls, zones such as Spirit Guardians, concentration spells used on later turns, smites, buffs on a
   willing creature, spells with a menu of effects) carry a note saying why.
 - Higher slots scale damage, healing and the number of darts and rays; cantrips scale at character
@@ -137,6 +137,14 @@ A creature concentrates on one spell at a time (`Creature.concentrating`; `src/e
   `MODIFIER_HORIZON` (3): each round it survives unless the caster is hit and fails a Constitution save against
   DC 10. A caster that is likely to be hit (few allies to share the enemies' attention, a low Constitution
   save) buffs less, and a caster who just lost Haste to a hit does not keep recasting it.
+- **Shield** is the first reaction. A creature has one reaction per round (back at the start of its own turn)
+  and only Shield uses it so far. It is cast when an attack hits and +5 AC would turn it into a miss (a
+  natural 20 is never stopped), but only for a hit worth at least 10% of the caster's max HP, and it needs a
+  slot. It is also cast when Magic Missile is aimed at the caster, which then deals nothing. The +5 lasts
+  until the start of the caster's next turn, so it covers every attack in between. The reaction is taken
+  inside the attack, so the log shows "X reacts with Shield" just before the attack, which then misses.
+  Characters always carry Shield into a fight when it is on their sheet (it never competes with their
+  damage spells). Not yet: other reactions (Counterspell, Absorb Elements, opportunity attacks).
 - Not yet: other effects on allies (Mage Armor, Longstrider, Warding Bond, ...) and concentration spells
   whose effect acts on later turns.
 

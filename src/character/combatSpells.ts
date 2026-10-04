@@ -69,6 +69,8 @@ export function selectCombatSpells(character: Character, library: readonly Spell
   for (const c of ranked(leveled.filter((x) => x.def.effect?.kind !== 'heal')).slice(0, MOST_DAMAGE_SPELLS)) chosen.add(c.spell);
   for (const c of ranked(leveled.filter((x) => x.def.effect?.kind === 'heal')).slice(0, MOST_HEALS)) chosen.add(c.spell);
   for (const c of candidates) if (c.spell.alwaysPrepared) chosen.add(c.spell);
+  // A reaction such as Shield is never planned on a turn, so it does not compete with damage spells.
+  for (const c of candidates) if (c.def.effect?.kind === 'buff' && c.def.effect.reaction) chosen.add(c.spell);
 
   // Spells that list a save or an attack bonus (so they probably do damage) but are not in the SRD
   // library cannot be simulated. Say so instead of leaving them out silently.

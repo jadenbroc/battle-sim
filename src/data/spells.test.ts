@@ -89,7 +89,7 @@ describe('bundled SRD spell library', () => {
   });
 
   it('leaves out what it cannot simulate, with a reason', () => {
-    for (const id of ['spirit-guardians', 'moonbeam', 'hex', 'shield', 'counterspell', 'misty-step', 'fly', 'conjure-animals', 'wall-of-fire']) {
+    for (const id of ['spirit-guardians', 'moonbeam', 'hex', 'counterspell', 'misty-step', 'fly', 'conjure-animals', 'wall-of-fire']) {
       const s = lib.find((x) => x.id === id);
       if (!s) continue;
       expect(s.effect, id).toBeUndefined();
@@ -375,8 +375,17 @@ describe('Shield of Faith and Haste', () => {
     });
     expect(spellToActions(haste, ctx).buffs).toHaveLength(1);
   });
-  it('reads only these three spells as buffs', async () => {
+  it('reads only these spells as buffs', async () => {
     const buffs = (await loadSrdSpells()).filter((s) => s.effect?.kind === 'buff').map((s) => s.id).sort();
-    expect(buffs).toEqual(['bless', 'haste', 'shield-of-faith']);
+    expect(buffs).toEqual(['bless', 'haste', 'shield', 'shield-of-faith']);
+  });
+});
+
+describe('Shield', () => {
+  it('is a reaction buff with +5 AC until the next turn and no Magic Missile damage', async () => {
+    const shield = (await loadSrdSpells()).find((s) => s.id === 'shield')!;
+    expect(shield.effect).toMatchObject({ kind: 'buff', reaction: true, rollModifier: { acBonus: 5, untilOwnTurn: true, blocksMagicMissile: true } });
+    const c = spellToActions(shield, { characterLevel: 5, spellAttackBonus: 6, spellSaveDC: 14, spellModifier: 3, slotLevels: [1, 2] });
+    expect(c.buffs.map((b) => [b.name, b.reaction, b.slotLevel])).toEqual([['Shield', true, 1], ['Shield (level 2)', true, 2]]);
   });
 });

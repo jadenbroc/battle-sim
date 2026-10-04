@@ -1,4 +1,4 @@
-import { applyCondition, armorClass, attackFlags, d20Penalty, defensesOf, isAutoCrit, saveFlags } from './conditions';
+import { applyCondition, armorClass, attackFlags, blocksMagicMissile, d20Penalty, defensesOf, isAutoCrit, saveFlags } from './conditions';
 import { rollD20, resolveMode, type D20Result, type RollMode } from './dice';
 import { addRollMod, rollModTotal } from './concentration';
 import { adjustAll, rollDamage, withChosenType, type AdjustedDamage } from './damage';
@@ -56,7 +56,15 @@ export interface AttackEvent {
   totalDamage: number;
   outcome: DamageOutcome | null;
   applied: AppliedCondition[];
+  /** The damage was blocked by a spell the target holds (Shield against Magic Missile). */
+  blocked?: true;
 }
+
+/**
+ * Lets the target answer an attack with a reaction (Shield) once it knows the attack hit, or that it is
+ * targeted by Magic Missile. Returns true if a reaction was taken, which has changed the target's defenses.
+ */
+export type ReactionHook = (trigger: { kind: 'hit'; total: number } | { kind: 'magic-missile' }) => boolean;
 
 export interface SaveEvent {
   kind: 'save';
@@ -121,16 +129,40 @@ export function performAttack(
   chosen: AttackOption,
   target: Creature,
   flags: AdvantageFlags = {},
+  react?: ReactionHook,
 ): AttackEvent {
   const option = withChosenType(chosen, defensesOf(target));
   const melee = (option.range ?? 'melee') === 'melee';
   const cf = attackFlags(attacker, target, melee);
   const mode = option.autoHit ? 'normal' : resolveMode(!!flags.advantage || cf.advantage, !!flags.disadvantage || cf.disadvantage);
 
+  // Magic Missile does nothing to a creature protected by Shield, which can be cast in answer to it.
+  if (option.autoHit && option.name === 'Magic Missile' && (blocksMagicMissile(target) || (react?.({ kind: 'magic-missile' }) && blocksMagicMissile(target)))) {
+    const none = { natural: 0, rolls: [], modifier: 0, total: 0, isNat20: false, isNat1: false };
+    return {
+      kind: 'attack',
+      attacker: attacker.name,
+      target: target.name,
+      option: option.name,
+      attackRoll: { roll: none, hit: false, crit: false },
+      mode: 'normal',
+      autoHit: true,
+      damage: [],
+      totalDamage: 0,
+      outcome: null,
+      applied: [],
+      blocked: true,
+    };
+  }
+
   // An auto-hit attack makes no roll: it hits, and with no attack roll it cannot crit.
-  const rolled: AttackRollResult = option.autoHit
+  let rolled: AttackRollResult = option.autoHit
     ? { roll: { natural: 0, rolls: [], modifier: 0, total: 0, isNat20: false, isNat1: false }, hit: true, crit: false }
     : rollAttack(rng, option.toHit - d20Penalty(attacker) + rollModTotal(rng, attacker, 'attack'), armorClass(target), mode);
+  // A hit (not a natural 20) may be turned into a miss by a reaction such as Shield, now that it is known.
+  if (!option.autoHit && rolled.hit && !rolled.roll.isNat20 && react?.({ kind: 'hit', total: rolled.roll.total })) {
+    rolled = { ...rolled, hit: rolled.roll.total >= armorClass(target) };
+  }
   const crit = rolled.crit || (!option.autoHit && rolled.hit && isAutoCrit(target, melee));
   const attackRoll = { ...rolled, crit };
   const base = {

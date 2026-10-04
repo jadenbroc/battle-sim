@@ -113,6 +113,10 @@ export interface RollModifier {
   extraAttack?: boolean;
   /** A condition the creature gets when the effect ends (Haste: Incapacitated until the end of its next turn). */
   endsWith?: ConditionEffect;
+  /** Lasts until the start of the creature's own next turn instead of a number of rounds (Shield). */
+  untilOwnTurn?: boolean;
+  /** The creature takes no damage from Magic Missile (Shield). */
+  blocksMagicMissile?: boolean;
 }
 
 /** A roll modifier currently on a creature. */
@@ -204,6 +208,8 @@ export interface Creature extends Defenses {
   concentrating?: string;
   /** Roll penalties and bonuses currently on the creature. */
   rollMods?: ActiveRollMod[];
+  /** The creature has used its reaction since the start of its last turn. */
+  reactionUsed?: boolean;
 }
 
 export type Team = 'party' | 'enemies';
@@ -231,6 +237,8 @@ interface ActionBase {
   bonus?: boolean;
   /** A concentration spell: the caster concentrates on it, and a creature that already is will not cast another. */
   concentration?: true;
+  /** Cast as a reaction (Shield): never planned on the creature's turn, but when it is hit. */
+  reaction?: true;
   /** Only usable on a target that has this condition ("one creature that has the Prone condition"). */
   targetRequires?: ConditionName;
 }

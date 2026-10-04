@@ -42,6 +42,9 @@ export function armorClass(c: Creature): number {
   return c.ac + (c.rollMods ?? []).reduce((sum, m) => sum + (m.acBonus ?? 0), 0);
 }
 
+/** Does a spell make this creature take no damage from Magic Missile (Shield)? */
+export const blocksMagicMissile = (c: Creature): boolean => (c.rollMods ?? []).some((m) => m.blocksMagicMissile);
+
 /** Does a spell give this creature advantage on Dexterity saving throws (Haste)? */
 export const hasDexSaveAdvantage = (c: Creature): boolean => (c.rollMods ?? []).some((m) => m.dexSaveAdvantage);
 

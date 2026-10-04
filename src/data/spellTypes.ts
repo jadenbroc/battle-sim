@@ -81,6 +81,8 @@ export interface BuffSpellEffect {
   /** How many creatures it affects. */
   targets: number;
   rollModifier: Omit<RollModifier, 'name'>;
+  /** Cast as a reaction when hit (Shield), not on the caster's turn. */
+  reaction?: true;
   scaling?: SpellScaling;
 }
 

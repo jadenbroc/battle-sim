@@ -167,7 +167,7 @@ export function spellToActions(spell: SpellDef, ctx: CasterContext): ConvertedSp
     }
 
     if (effect.kind === 'buff') {
-      out.buffs.push({ ...common, rollModifier: effect.rollModifier, maxTargets: effect.targets + sc.extraTargets });
+      out.buffs.push({ ...common, rollModifier: effect.rollModifier, maxTargets: effect.targets + sc.extraTargets, ...(effect.reaction ? { reaction: true as const } : {}) });
       continue;
     }
 

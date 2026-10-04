@@ -281,7 +281,7 @@ function buffValue(m: Omit<RollModifier, 'name'>, ally: Combatant, allies: reado
  */
 function planBuff(actor: Combatant, allies: readonly Combatant[], enemies: readonly Combatant[], slot: Slot): { plan: Plan; score: number } | null {
   const usable = usableOptions(
-    (actor.buffs ?? []).filter((b) => inSlot(b, slot) && !(b.concentration && actor.creature.concentrating)),
+    (actor.buffs ?? []).filter((b) => !b.reaction && inSlot(b, slot) && !(b.concentration && actor.creature.concentrating)),
     actor.slots,
     actor,
   );

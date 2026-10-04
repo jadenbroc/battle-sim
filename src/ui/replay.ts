@@ -59,6 +59,8 @@ export function viewAt(config: FightConfig, log: readonly LoggedEvent[], count: 
         v.hp = Math.min(v.maxHp, v.hp + event.amount);
         if (v.status === 'down' || v.status === 'stable') v.status = 'alive';
       }
+    } else if (event.kind === 'reaction') {
+      views.get(event.actor)?.conditions.push(event.option);
     } else if (event.kind === 'buff') {
       views.get(event.target)?.conditions.push(event.option);
     } else if (event.kind === 'death-save') {
@@ -114,6 +116,7 @@ export function formatEvent(event: LogEvent): FormattedEvent {
     case 'attack': {
       const r = event.attackRoll;
       const dice = r.roll.rolls.length > 1 ? ` (${r.roll.rolls.join('/')}, ${event.mode})` : '';
+      if (event.blocked) return { kind, text: `${event.attacker}'s ${event.option} does nothing to ${event.target}, who is protected by a force barrier.` };
       if (event.autoHit) {
         const dmg = event.damage.length ? damageText(event.damage) : '0';
         return { kind, text: `${event.attacker}'s ${event.option} strikes ${event.target} automatically for ${dmg}.${dropNote(event.target, event.outcome)}${appliedNote(event.applied)}` };
@@ -138,6 +141,8 @@ export function formatEvent(event: LogEvent): FormattedEvent {
       return { kind, text: `${event.actor} casts ${event.option} on ${event.target}, restoring ${event.amount} HP.` };
     case 'buff':
       return { kind, text: `${event.actor} casts ${event.option} on ${event.target}.` };
+    case 'reaction':
+      return { kind, text: `${event.actor} reacts with ${event.option}.` };
     case 'death-save': {
       const results: Record<typeof event.outcome, string> = {
         success: 'succeeds',

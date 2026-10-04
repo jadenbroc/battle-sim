@@ -329,3 +329,72 @@ describe('Shield of Faith and Haste', () => {
     expect(after.some((l) => l.event.kind === 'condition-end' && l.event.target === 'fighter' && l.event.condition === 'incapacitated')).toBe(true);
   });
 });
+
+describe('Shield (a reaction)', () => {
+  const SHIELD = { sign: 1 as const, attacks: false, saves: false, rounds: 1, acBonus: 5, untilOwnTurn: true, blocksMagicMissile: true };
+  const shieldAction = (slotLevel = 1): BuffAction => ({ name: 'Shield', spell: 'Shield', slotLevel, reaction: true, rollModifier: SHIELD, maxTargets: 1 });
+  const wizard = (slots: Record<number, number> = { 1: 2 }): Combatant => {
+    const w = makeCombatant('wizard', 'party', { hp: 40, ac: 12, dex: 30, slots });
+    w.actions = [];
+    w.buffs = [shieldAction()];
+    return w;
+  };
+  const striker = (over: Partial<Combatant> & { dmg?: string; toHit?: number } = {}): Combatant => makeCombatant('striker', 'enemies', { hp: 5000, dmg: '8', toHit: 6, dex: 1, ...over });
+  const shieldEvents = (log: LoggedEvent[]) => events(log, 'reaction');
+
+  it('turns a hit into a miss when the extra AC is enough, once per round, and costs a slot', () => {
+    const w = wizard({ 1: 5 });
+    const s = striker();
+    // To-hit +6 vs AC 12 hits on 6+; with Shield (AC 17) it hits only on 11+.
+    const { log } = runFight({ combatants: [w, s] }, createRng('shield1'), { log: true });
+    const casts = shieldEvents(log);
+    expect(casts.length).toBeGreaterThan(0);
+    // Right after a reaction, the attack that triggered it is a miss.
+    const idx = log.findIndex((l) => l.event.kind === 'reaction');
+    const next = log[idx + 1]!.event;
+    expect(next.kind === 'attack' && next.attackRoll.hit).toBe(false);
+    // One reaction per round: never two in the same round.
+    const perRound = new Map<number, number>();
+    for (const l of log) if (l.event.kind === 'reaction') perRound.set(l.round, (perRound.get(l.round) ?? 0) + 1);
+    expect(Math.max(...perRound.values())).toBe(1);
+    // It lasts until the wizard's next turn: shown in the replay, gone after that turn starts.
+    const config = { combatants: [w, s] };
+    expect(viewAt(config, log, idx + 1).find((v) => v.name === 'wizard')!.conditions).toContain('Shield');
+    const off = log.findIndex((l, i) => i > idx && l.event.kind === 'modifier-end' && l.event.name === 'Shield');
+    expect(off).toBeGreaterThan(idx);
+    expect(viewAt(config, log, off + 1).find((v) => v.name === 'wizard')!.conditions).not.toContain('Shield');
+  });
+
+  it('spends a slot, and does nothing without one', () => {
+    const w = wizard({ 1: 1 });
+    const { log } = runFight({ combatants: [w, striker()] }, createRng('shield2'), { log: true });
+    expect(shieldEvents(log)).toHaveLength(1); // the only slot
+    const none = runFight({ combatants: [wizard({ 1: 0 }), striker()] }, createRng('shield2'), { log: true });
+    expect(shieldEvents(none.log)).toHaveLength(0);
+  });
+
+  it('is not worth a slot against a hit that is too small, or one it cannot stop', () => {
+    const tiny = runFight({ combatants: [wizard(), striker({ dmg: '1' })] }, createRng('shield3'), { log: true });
+    expect(shieldEvents(tiny.log)).toHaveLength(0); // 1 damage is under 10% of 40 HP
+    const huge = runFight({ combatants: [wizard(), striker({ toHit: 40 })] }, createRng('shield3'), { log: true });
+    expect(shieldEvents(huge.log)).toHaveLength(0); // +5 AC would not turn these hits into misses
+  });
+
+  it('is cast at Magic Missile, which then does nothing', () => {
+    const w = wizard();
+    const caster = makeCombatant('caster', 'enemies', { hp: 500, dex: 1 });
+    caster.actions = [{ kind: 'attack', name: 'Magic Missile', count: 3, attack: { name: 'Magic Missile', toHit: 0, autoHit: true, range: 'ranged', damage: [{ dice: '1d4+1', type: 'force' }] } }];
+    const { log } = runFight({ combatants: [w, caster] }, createRng('mm'), { log: true });
+    const first = log.findIndex((l) => l.event.kind === 'reaction');
+    expect(first).toBeGreaterThan(0);
+    const darts = log.slice(first + 1, first + 4).map((l) => l.event);
+    expect(darts.every((e) => e.kind === 'attack' && e.blocked === true && e.totalDamage === 0)).toBe(true);
+    expect(shieldEvents(log)).toHaveLength(2); // both slots: the barrier ends when the wizard's next turn starts, so a second one is cast
+  });
+
+  it('is never planned as an action on the caster own turn', () => {
+    const w = wizard();
+    const foe = makeCombatant('foe', 'enemies', {});
+    expect(planTurn(w, [w, foe], createRng('p'), 3)).toBeNull();
+  });
+});

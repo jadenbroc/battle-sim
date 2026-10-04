@@ -210,6 +210,27 @@ export function parseEffect(
   scaling: SpellScaling | undefined,
   notes: string[],
 ): SpellEffect | undefined {
+  // Shield: a reaction taken when hit, with a bonus to AC "including against the triggering attack".
+  const shield = /^Reaction, which you take when you are hit by an attack roll/i.test(castingTime)
+    ? /\+(\d+) bonus to AC, including against the triggering attack/i.exec(clean(text))
+    : null;
+  if (shield) {
+    return {
+      kind: 'buff',
+      targets: 1,
+      reaction: true,
+      rollModifier: {
+        sign: 1,
+        attacks: false,
+        saves: false,
+        rounds: 1,
+        acBonus: +shield[1]!,
+        untilOwnTurn: true,
+        ...(/no damage from Magic Missile/i.test(text) ? { blocksMagicMissile: true } : {}),
+      },
+    };
+  }
+
   if (!/^(Action|Bonus Action)\b/i.test(castingTime)) {
     notes.push(`Casting time "${castingTime}": not usable in a fight`);
     return undefined;

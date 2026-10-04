@@ -10,6 +10,7 @@ import {
   type Action,
   type AttackAction,
   type AttackOption,
+  type BuffAction,
   type Combatant,
   type Creature,
   type HealAction,
@@ -25,7 +26,8 @@ export const HEAL_THRESHOLD = 0.3;
 export type Plan =
   | { kind: 'attack'; action: AttackAction; target: Combatant }
   | { kind: 'save'; action: SaveAction; targets: Combatant[] }
-  | { kind: 'heal'; action: HealAction; target: Combatant };
+  | { kind: 'heal'; action: HealAction; target: Combatant }
+  | { kind: 'buff'; action: BuffAction; targets: Combatant[] };
 
 const clamp = (v: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, v));
 
@@ -220,6 +222,34 @@ function rollModifierValue(s: SaveOption, target: Combatant): number {
 }
 
 /**
+ * Cast a buff (Bless) on the allies who gain the most: those that deal the most damage per round.
+ * Its worth is the extra damage the bonus brings: the average bonus out of 20 is added to each attack's
+ * chance to hit, so each ally deals that share more of its damage per round, over a few rounds.
+ * Returns the best buff and its value, or null when there is nobody left to bless.
+ */
+function planBuff(actor: Combatant, allies: readonly Combatant[], slot: Slot): { plan: Plan; score: number } | null {
+  const usable = usableOptions(
+    (actor.buffs ?? []).filter((b) => inSlot(b, slot) && !(b.concentration && actor.creature.concentrating)),
+    actor.slots,
+    actor,
+  );
+  let best: { plan: Plan; score: number } | null = null;
+  for (const action of usable) {
+    const m = action.rollModifier;
+    if (!m.attacks || m.sign < 0) continue;
+    const gains = allies
+      .filter((a) => a.creature.status === 'alive' && !a.creature.rollMods?.some((x) => x.name === action.spell && x.sourceId === actor.creature.id))
+      .map((a) => ({ ally: a, value: (averageDice(m.dice) / 20) * estimateDpr(a) * MODIFIER_HORIZON }))
+      .sort((x, y) => y.value - x.value)
+      .slice(0, action.maxTargets);
+    const score = gains.reduce((sum, g) => sum + g.value, 0);
+    if (gains.length === 0 || score <= 0) continue;
+    if (!best || score > best.score) best = { plan: { kind: 'buff', action, targets: gains.map((g) => g.ally) }, score };
+  }
+  return best;
+}
+
+/**
  * Decide what one creature does with its action or bonus action: heal if an ally is low, else
  * the best damage option. Returns null when it has nothing usable (common for bonus actions).
  */
@@ -260,6 +290,9 @@ export function planTurn(
     const score = expectedFor(action, targets, target, actor);
     if (!best || score > best.score) best = { action, targets, primary: target, score };
   }
+  // A buff is cast when it is worth more than the best attack (Bless over a cantrip, not over a big spell).
+  const buff = planBuff(actor, allies, slot);
+  if (buff && (!best || buff.score > best.score)) return buff.plan;
   if (!best) return null;
 
   return best.action.kind === 'attack'

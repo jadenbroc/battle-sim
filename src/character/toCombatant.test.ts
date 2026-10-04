@@ -41,7 +41,7 @@ describe('selectCombatSpells', () => {
     const c = selectCombatSpells(cleric(), lib);
     expect(picked(c)).toEqual(expect.arrayContaining(['Sacred Flame', 'Healing Word', 'Inflict Wounds', 'Guiding Bolt']));
     expect(picked(c)).not.toContain('Guidance'); // no simulated effect
-    expect(picked(c)).not.toContain('Bless'); // always prepared, but no effect to simulate
+    expect(picked(c)).toContain('Bless'); // always prepared, and a buff the engine simulates
   });
 
   it('warns about a spell with a save listed that is not in the library', () => {

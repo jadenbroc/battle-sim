@@ -124,7 +124,7 @@ export function parsePrivateSpell(rawMd: string): ParsedPrivateSpell {
   const effect = excludedByName(name)
     ? (notes.push(EXCLUDED_BY_NAME_NOTE), undefined)
     : parseEffect(withTypeSentences(text, fm), time, duration, concentration, undefined, notes);
-  const firstDice = effect && effect.kind !== 'heal' ? effect.damage[0]?.dice : undefined;
+  const firstDice = effect && (effect.kind === 'attack' || effect.kind === 'save') ? effect.damage[0]?.dice : undefined;
   const baseSides = firstDice ? parseDice(firstDice).sides : undefined;
   const scaling = parseScaling(level > 0 ? scalingText : undefined, level === 0 ? scalingText : undefined, notes, baseSides);
   if (effect && scaling) effect.scaling = scaling;

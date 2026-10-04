@@ -11,7 +11,7 @@ import {
   type Removal,
 } from './conditions';
 import { creatureSave, performAttack, performSave, type AttackEvent, type SaveEvent } from './combat';
-import { concentrationDc, mustStop, releaseConcentration, tickRollMods, type ConcentrationEndReason, type Released } from './concentration';
+import { addRollMod, concentrationDc, mustStop, releaseConcentration, tickRollMods, type ConcentrationEndReason, type Released } from './concentration';
 import { rollD20, rollDice } from './dice';
 import { heal, rollDeathSave, type DeathSaveResult } from './hp';
 import type { Rng } from './rng';
@@ -52,6 +52,7 @@ export type LogEvent =
   | AttackEvent
   | SaveEvent
   | { kind: 'heal'; actor: string; target: string; option: string; amount: number }
+  | { kind: 'buff'; actor: string; target: string; option: string }
   | ({ kind: 'death-save'; actor: string } & DeathSaveResult)
   | { kind: 'recharge'; actor: string; option: string; roll: number; success: boolean }
   | { kind: 'condition-end'; target: string; condition: ConditionName; reason: ConditionEndReason }
@@ -207,6 +208,17 @@ export function runFight(config: FightConfig, rng: Rng, opts: { log?: boolean } 
       spend(actor, plan.action);
       const amount = heal(plan.target.creature, Math.max(0, rollDice(rng, plan.action.dice).total));
       push(round, { kind: 'heal', actor: actor.creature.name, target: plan.target.creature.name, option: plan.action.name, amount });
+      return;
+    }
+
+    if (plan.kind === 'buff') {
+      spend(actor, plan.action);
+      beginConcentration(round, actor, plan.action);
+      for (const target of plan.targets) {
+        const name = plan.action.spell ?? plan.action.name;
+        addRollMod(target.creature, plan.action.rollModifier, name, actor.creature.id, !!plan.action.concentration);
+        push(round, { kind: 'buff', actor: actor.creature.name, target: target.creature.name, option: name });
+      }
       return;
     }
 

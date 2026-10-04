@@ -89,7 +89,7 @@ The bundled SRD 5.2.1 spell library (339 spells) lives in `src/data/srd-spells.j
 `npm run data:build`; see `docs/spell-format.md`. A spell stores what it does (attack, save, heal, the
 conditions it inflicts, and how it scales); the caster supplies the save DC, attack bonus and
 spellcasting modifier, which the PDF import will read from the character sheet.
-- 42 damaging spells and 5 healing spells are simulated. Spells with no effect (reactions, summons,
+- 42 damaging spells, 5 healing spells and 2 effect spells (Bane, Bless) are simulated. Spells with no effect (reactions, summons,
   walls, zones such as Spirit Guardians, concentration spells used on later turns, smites, buffs on a
   willing creature, spells with a menu of effects) carry a note saying why.
 - Higher slots scale damage, healing and the number of darts and rays; cantrips scale at character
@@ -118,7 +118,14 @@ A creature concentrates on one spell at a time (`Creature.concentrating`; `src/e
   chance the target fails, times the average penalty out of 20, times its stat-block damage per round, over
   `MODIFIER_HORIZON` (3) rounds. This is a heuristic and the one number to tune. Other conditions-only
   concentration spells (Hold Person, ...) are still valued at 0, as before.
-- Not yet: Bless and other effects on allies, and concentration spells whose effect acts on later turns.
+- **Buffs on allies (Bless: add 1d4 to attack rolls and saves, up to 3 allies, +1 per slot level)** use the same
+  mechanism with a bonus die, cast with no roll. A buff is cast when it is worth more than the caster's best
+  attack: each blessed ally is valued at the average bonus out of 20 times its stat-block damage per round,
+  over `MODIFIER_HORIZON` rounds, and the allies who deal the most damage get it. So a cleric blesses the
+  fighter and rogue before a weak cantrip, but a big damage spell still wins. It is not cast again on
+  allies who already have it, and a caster who is already concentrating does not cast it.
+- Not yet: other effects on allies (Haste, Shield of Faith, ...) and concentration spells whose effect acts
+  on later turns.
 
 ## Later milestones
 1. Weapon mastery properties.

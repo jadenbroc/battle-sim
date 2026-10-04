@@ -54,6 +54,7 @@ const key = (s: SpellDef): string => {
   const e = s.effect;
   if (!e) return 'none';
   if (e.kind === 'heal') return `heal ${e.dice} ${e.addsModifier}`;
+  if (e.kind === 'buff') return `buff ${e.targets} ${e.rollModifier.dice}`;
   const dmg = e.damage.map((d) => d.dice + d.type).join('+');
   return e.kind === 'attack'
     ? `attack ${e.range} ${e.autoHit ? 'auto' : ''} x${e.count ?? 1} ${dmg}`
@@ -79,7 +80,7 @@ for (const s of all) {
 for (const s of spells) {
   const e = s.effect;
   if (!e) continue;
-  const dice = e.kind === 'heal' ? [e.dice] : e.damage.map((d) => d.dice);
+  const dice = e.kind === 'heal' ? [e.dice] : e.kind === 'buff' ? [e.rollModifier.dice] : e.damage.map((d) => d.dice);
   for (const d of dice) {
     try {
       parseDice(d);
@@ -87,7 +88,7 @@ for (const s of spells) {
       problems.push(`${s.name}: bad dice ${d}`);
     }
   }
-  if (e.kind !== 'heal') for (const d of e.damage) if (!isDamageType(d.type)) problems.push(`${s.name}: bad damage type ${d.type}`);
+  if (e.kind === 'attack' || e.kind === 'save') for (const d of e.damage) if (!isDamageType(d.type)) problems.push(`${s.name}: bad damage type ${d.type}`);
 }
 
 spells.sort((a, b) => a.level - b.level || a.name.localeCompare(b.name));

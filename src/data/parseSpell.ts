@@ -216,6 +216,19 @@ export function parseEffect(
     if (/additional (?:creature|target|Beast|Humanoid)/i.test(text)) notes.push('Extra targets at higher levels are not simulated');
   };
 
+  // A bonus die on allies: "You bless up to three creatures... adds 1d4 to the attack roll or save" (Bless).
+  const bonusDie = /\badds? (\d+d\d+) to the attack roll(?: or (?:the )?(save|saving throw))?/i.exec(t);
+  const upTo = /\bup to (one|two|three|four|five|six|seven|eight|nine) creatures?\b/i.exec(t);
+  if (bonusDie && upTo && !hasDamage) {
+    note();
+    return {
+      kind: 'buff',
+      targets: NUMBER_WORDS[upTo[1]!.toLowerCase()]!,
+      rollModifier: { dice: bonusDie[1]!, sign: 1, attacks: true, saves: !!bonusDie[2], rounds: durationRounds(duration) ?? 10 },
+      ...(scaling ? { scaling } : {}),
+    };
+  }
+
   // Attack spells: "Make a ranged spell attack... On a hit, the target takes 1d10 Fire damage."
   const attack = /\b(ranged|melee) spell attack\b/i.exec(t);
   if (attack) {
@@ -388,6 +401,6 @@ export function parseSpellBlock(lines: readonly string[]): ParsedSpell {
 
   // Consistency: a cantrip's header has no level; a leveled spell must have a school.
   if (header && !school) problems.push('no school');
-  if (effect && effect.kind !== 'heal' && effect.damage.length === 0 && !effect.effects?.length && !(effect.kind === 'save' && effect.rollModifier)) problems.push('effect with no damage, conditions or roll penalty');
+  if (effect && (effect.kind === 'attack' || effect.kind === 'save') && effect.damage.length === 0 && !effect.effects?.length && !(effect.kind === 'save' && effect.rollModifier)) problems.push('effect with no damage, conditions or roll penalty');
   return { def, problems };
 }

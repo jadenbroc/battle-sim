@@ -23,6 +23,7 @@ function spellValue(def: SpellDef, modifier: number): number {
   const e = def.effect;
   if (!e) return 0;
   if (e.kind === 'heal') return averageDice(e.dice) + (e.addsModifier ? modifier : 0);
+  if (e.kind === 'buff') return 8; // a buff on several allies: ranked with the damage spells
   const dmg = e.damage.reduce((sum, d) => sum + Math.max(0, averageDice(d.dice)), 0);
   if (dmg === 0) return e.kind === 'save' && e.rollModifier ? 6 : 0; // a roll penalty (Bane) has some value; other conditions-only spells are never chosen
   if (e.kind === 'attack') return dmg * (e.count ?? 1) * (e.autoHit ? 1 : 0.65);

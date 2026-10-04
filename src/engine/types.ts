@@ -266,6 +266,13 @@ export interface SaveAction extends ActionBase {
 
 export type Action = AttackAction | SaveAction;
 
+/** A buff the caster puts on allies (Bless: add 1d4 to attack rolls and saves). Kept apart from `actions` like heals. */
+export interface BuffAction extends ActionBase {
+  rollModifier: Omit<RollModifier, 'name'>;
+  /** How many creatures it can affect. */
+  maxTargets: number;
+}
+
 export interface HealAction extends ActionBase {
   dice: string;
 }
@@ -276,6 +283,8 @@ export interface Combatant {
   profile: TargetProfile;
   actions: Action[];
   heals: HealAction[];
+  /** Buffs cast on allies (Bless). */
+  buffs?: BuffAction[];
   /** Remaining spell slots by level. */
   slots: Record<number, number>;
   /**

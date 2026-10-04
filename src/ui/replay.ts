@@ -59,6 +59,8 @@ export function viewAt(config: FightConfig, log: readonly LoggedEvent[], count: 
         v.hp = Math.min(v.maxHp, v.hp + event.amount);
         if (v.status === 'down' || v.status === 'stable') v.status = 'alive';
       }
+    } else if (event.kind === 'buff') {
+      views.get(event.target)?.conditions.push(event.option);
     } else if (event.kind === 'death-save') {
       const v = views.get(event.actor);
       if (!v) continue;
@@ -132,6 +134,8 @@ export function formatEvent(event: LogEvent): FormattedEvent {
     }
     case 'heal':
       return { kind, text: `${event.actor} casts ${event.option} on ${event.target}, restoring ${event.amount} HP.` };
+    case 'buff':
+      return { kind, text: `${event.actor} casts ${event.option} on ${event.target}.` };
     case 'death-save': {
       const results: Record<typeof event.outcome, string> = {
         success: 'succeeds',

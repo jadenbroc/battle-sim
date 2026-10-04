@@ -1,5 +1,5 @@
 import { parseDice } from '../engine/dice';
-import type { Ability, Action, AttackAction, ConditionEffect, DamageComponent, HealAction, SaveAction } from '../engine/types';
+import type { Ability, Action, BuffAction, AttackAction, ConditionEffect, DamageComponent, HealAction, SaveAction } from '../engine/types';
 import type { SpellArea, SpellDef, SpellScaling } from './spellTypes';
 
 /** Loads the bundled SRD 5.2 spell library (split into its own chunk). */
@@ -56,6 +56,8 @@ export interface CasterContext {
 export interface ConvertedSpell {
   actions: Action[];
   heals: HealAction[];
+  /** Buffs on allies (Bless). */
+  buffs: BuffAction[];
   /** Why a spell was not converted, or which parts of it are not simulated. */
   warnings: string[];
 }
@@ -139,7 +141,7 @@ function scalingFor(s: SpellScaling | undefined, spellLevel: number, slot: numbe
  * no simulated effect return nothing and a warning.
  */
 export function spellToActions(spell: SpellDef, ctx: CasterContext): ConvertedSpell {
-  const out: ConvertedSpell = { actions: [], heals: [], warnings: [] };
+  const out: ConvertedSpell = { actions: [], heals: [], buffs: [], warnings: [] };
   const effect = spell.effect;
   if (!effect) {
     out.warnings.push(`${spell.name}: not simulated${spell.notes[0] ? ` (${spell.notes[0]})` : ''}`);
@@ -161,6 +163,11 @@ export function spellToActions(spell: SpellDef, ctx: CasterContext): ConvertedSp
       if (sc.heal) dice = addHealDice(dice, sc.heal[0], sc.heal[1]);
       if (effect.addsModifier && ctx.spellModifier !== 0) dice += ctx.spellModifier > 0 ? `+${ctx.spellModifier}` : `${ctx.spellModifier}`;
       out.heals.push({ ...common, dice });
+      continue;
+    }
+
+    if (effect.kind === 'buff') {
+      out.buffs.push({ ...common, rollModifier: effect.rollModifier, maxTargets: effect.targets + sc.extraTargets });
       continue;
     }
 
@@ -213,11 +220,12 @@ export function spellToActions(spell: SpellDef, ctx: CasterContext): ConvertedSp
 
 /** Convert several spells at once, collecting actions, heals and warnings. */
 export function spellsToActions(spells: readonly SpellDef[], ctx: CasterContext): ConvertedSpell {
-  const out: ConvertedSpell = { actions: [], heals: [], warnings: [] };
+  const out: ConvertedSpell = { actions: [], heals: [], buffs: [], warnings: [] };
   for (const s of spells) {
     const c = spellToActions(s, ctx);
     out.actions.push(...c.actions);
     out.heals.push(...c.heals);
+    out.buffs.push(...c.buffs);
     out.warnings.push(...c.warnings);
   }
   return out;

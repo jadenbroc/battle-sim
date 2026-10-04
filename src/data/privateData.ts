@@ -50,7 +50,7 @@ export function parsePrivateData(text: string): PrivateParse {
     if (!isObj(s) || typeof s.id !== 'string' || typeof s.name !== 'string' || typeof s.level !== 'number' || !Array.isArray(s.classes) || !Array.isArray(s.notes)) {
       return { ok: false, error: `a spell is missing id, name, level, classes or notes${isObj(s) && typeof s.name === 'string' ? ` (${s.name})` : ''}` };
     }
-    if (s.effect !== undefined && (!isObj(s.effect) || !['attack', 'save', 'heal'].includes(String(s.effect.kind)))) return { ok: false, error: `spell "${s.name}" has an unknown effect` };
+    if (s.effect !== undefined && (!isObj(s.effect) || !['attack', 'save', 'heal', 'buff'].includes(String(s.effect.kind)))) return { ok: false, error: `spell "${s.name}" has an unknown effect` };
   }
   const monsters = Array.isArray(raw.monsters) ? raw.monsters : [];
   for (const m of monsters) {

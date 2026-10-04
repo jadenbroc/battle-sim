@@ -53,6 +53,10 @@ describe('bundled SRD spell library', () => {
         expect(() => parseDice(e.dice), s.name).not.toThrow();
         continue;
       }
+      if (e.kind === 'buff') {
+        expect(() => parseDice(e.rollModifier.dice), s.name).not.toThrow();
+        continue;
+      }
       expect(e.damage.length + (e.effects?.length ?? 0) + (e.kind === 'save' && e.rollModifier ? 1 : 0), s.name).toBeGreaterThan(0);
       for (const d of e.damage) {
         expect(isDamageType(d.type), `${s.name} ${d.type}`).toBe(true);
@@ -95,7 +99,7 @@ describe('bundled SRD spell library', () => {
   });
 
   it('counts the simulated spells', () => {
-    const damaging = lib.filter((s) => s.effect && s.effect.kind !== 'heal' && s.effect.damage.length > 0);
+    const damaging = lib.filter((s) => s.effect && (s.effect.kind === 'attack' || s.effect.kind === 'save') && s.effect.damage.length > 0);
     expect(damaging.length).toBeGreaterThanOrEqual(35);
     expect(lib.filter((s) => s.effect?.kind === 'heal').length).toBe(5);
   });
@@ -342,5 +346,15 @@ describe('Bane', () => {
     expect(spellToActions(hold, { characterLevel: 5, spellAttackBonus: 6, spellSaveDC: 14, spellModifier: 3 }).actions[0]).toMatchObject({ concentration: true });
     const fireball = lib.find((s) => s.id === 'fireball')!;
     expect(spellToActions(fireball, { characterLevel: 5, spellAttackBonus: 6, spellSaveDC: 14, spellModifier: 3 }).actions[0]!.concentration).toBeUndefined();
+  });
+});
+
+describe('Bless', () => {
+  it('is a buff on up to three allies, one more per slot level', async () => {
+    const bless = (await loadSrdSpells()).find((s) => s.id === 'bless')!;
+    expect(bless.effect).toMatchObject({ kind: 'buff', targets: 3, rollModifier: { dice: '1d4', sign: 1, attacks: true, saves: true, rounds: 10 } });
+    const c = spellToActions(bless, { characterLevel: 5, spellAttackBonus: 6, spellSaveDC: 14, spellModifier: 3, slotLevels: [1, 3] });
+    expect(c.actions).toEqual([]);
+    expect(c.buffs.map((b) => [b.name, b.maxTargets, b.concentration, b.slotLevel])).toEqual([['Bless', 3, true, 1], ['Bless (level 3)', 5, true, 3]]);
   });
 });

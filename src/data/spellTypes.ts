@@ -75,7 +75,16 @@ export interface HealSpellEffect {
   scaling?: SpellScaling;
 }
 
-export type SpellEffect = AttackSpellEffect | SaveSpellEffect | HealSpellEffect;
+/** A spell that puts a bonus on allies, with no roll of its own (Bless). */
+export interface BuffSpellEffect {
+  kind: 'buff';
+  /** How many creatures it affects. */
+  targets: number;
+  rollModifier: Omit<RollModifier, 'name'>;
+  scaling?: SpellScaling;
+}
+
+export type SpellEffect = AttackSpellEffect | SaveSpellEffect | HealSpellEffect | BuffSpellEffect;
 
 /** A spell in the library format. Save DCs and attack bonuses come from the caster, not the spell. */
 export interface SpellDef {

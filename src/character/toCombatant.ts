@@ -1,6 +1,6 @@
 import { spellToActions, type CasterContext } from '../data/spells';
 import type { SpellDef } from '../data/spellTypes';
-import { abilityMod, type Action, type AttackAction, type Combatant, type HealAction } from '../engine/types';
+import { abilityMod, type Action, type AttackAction, type BuffAction, type Combatant, type HealAction } from '../engine/types';
 import { totalLevel, type Character, type CharacterSpell, type SpellcastingClass } from './characterTypes';
 import { findSpell } from './combatSpells';
 
@@ -26,6 +26,7 @@ export function characterToCombatant(c: Character, library: readonly SpellDef[])
   const level = totalLevel(c);
   const actions: Action[] = [];
   const heals: HealAction[] = [];
+  const buffs: BuffAction[] = [];
 
   // The attacks table: weapons use Extra Attack; a row that is an SRD spell is handled as a spell.
   for (const a of c.attacks) {
@@ -60,6 +61,7 @@ export function characterToCombatant(c: Character, library: readonly SpellDef[])
     const converted = spellToActions(def, ctx);
     actions.push(...converted.actions);
     heals.push(...converted.heals);
+    buffs.push(...converted.buffs);
     warnings.push(...converted.warnings);
   }
   if (unknownSpells.length) warnings.push(`Not in the SRD library, so not simulated: ${unknownSpells.join(', ')}`);
@@ -86,6 +88,7 @@ export function characterToCombatant(c: Character, library: readonly SpellDef[])
     profile: c.profile,
     actions,
     heals,
+    ...(buffs.length ? { buffs } : {}),
     slots: Object.fromEntries(Object.entries(c.slots).filter(([l, n]) => +l > 0 && n > 0)),
     initiativeBonus: c.initiativeBonus,
   };

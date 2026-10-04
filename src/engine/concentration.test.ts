@@ -6,7 +6,7 @@ import { runFight, type LoggedEvent } from './fight';
 import { createRng } from './rng';
 import { planTurn } from './tactics';
 import { makeCombatant, makeCreature, scriptedRng } from './testUtil';
-import type { Action, Combatant, SaveAction } from './types';
+import type { Action, BuffAction, Combatant, SaveAction } from './types';
 
 const BANE = { dice: '1d4', sign: -1 as const, attacks: true, saves: true, rounds: 10 };
 
@@ -182,5 +182,65 @@ describe('valuing a roll penalty', () => {
     const foes = goblins();
     for (const g of foes) addRollMod(g.creature, BANE, 'Bane', cleric.creature.id, true);
     expect(planTurn(cleric, [cleric, ...foes], createRng('v'), 3)?.action.name).toBe('Zap');
+  });
+});
+
+describe('buffs (Bless)', () => {
+  const BLESS = { dice: '1d4', sign: 1 as const, attacks: true, saves: true, rounds: 10 };
+  const blessAction = (maxTargets = 3): BuffAction => ({ name: 'Bless', spell: 'Bless', concentration: true, rollModifier: BLESS, maxTargets });
+  const cantrip = (): Action => ({ kind: 'attack', name: 'Zap', attack: { name: 'Zap', toHit: 5, damage: [{ dice: '1d4', type: 'fire' }] } });
+  const party = (): Combatant[] => {
+    const cleric = makeCombatant('cleric', 'party', { hp: 500, ac: 1 });
+    cleric.actions = [cantrip()];
+    cleric.buffs = [blessAction()];
+    const fighter = makeCombatant('fighter', 'party', { dmg: '1d8+4' });
+    const rogue = makeCombatant('rogue', 'party', { dmg: '1d6+3' });
+    const wizard = makeCombatant('wizard', 'party', { dmg: '1d4' });
+    return [cleric, fighter, rogue, wizard];
+  };
+  const foe = (): Combatant => makeCombatant('foe', 'enemies', { hp: 500, dmg: '0', toHit: -10 });
+
+  it('adds the die to the roll of a blessed attacker', () => {
+    const attacker = makeCreature({ id: 'a', name: 'a' });
+    const target = makeCreature({ id: 't', name: 't', ac: 10 });
+    const opt = { name: 'Hit', toHit: 5, damage: [{ dice: '1', type: 'slashing' as const }] };
+    addRollMod(attacker, BLESS, 'Bless', 'cleric', true);
+    expect(performAttack(scriptedRng([2, 4]), attacker, opt, target).attackRoll.hit).toBe(true); // 4 + 5 + 2 = 11
+    expect(rollModAverage(attacker, 'attack')).toBe(2.5);
+  });
+
+  it('is cast on the strongest allies in preference to a weak cantrip, then the cleric concentrates', () => {
+    const [cleric, ...others] = party();
+    const plan = planTurn(cleric!, [cleric!, ...others, foe()], createRng('b'), 3);
+    expect(plan?.kind).toBe('buff');
+    const names = plan?.kind === 'buff' ? plan.targets.map((t) => t.creature.name) : [];
+    expect(names).toHaveLength(3);
+    expect(names).toContain('fighter');
+    expect(names).not.toContain('wizard'); // the weakest damage dealer is left out
+    cleric!.creature.concentrating = 'Bless';
+    expect(planTurn(cleric!, [cleric!, ...others, foe()], createRng('b'), 3)?.kind).toBe('attack');
+  });
+
+  it('is not cast again on those who already have it', () => {
+    const [cleric, ...others] = party();
+    for (const o of [cleric!, ...others]) addRollMod(o.creature, BLESS, 'Bless', cleric!.creature.id, true);
+    expect(planTurn(cleric!, [cleric!, ...others, foe()], createRng('b'), 3)?.kind).toBe('attack');
+  });
+
+  it('is cast in a fight, shows in the replay, and ends with the concentration', () => {
+    const [cleric, ...others] = party();
+    cleric!.creature.saveBonuses = { con: -50 };
+    const striker = makeCombatant('striker', 'enemies', { hp: 500, dmg: '4', toHit: 50, dex: 1 });
+    const config = { combatants: [cleric!, ...others, striker] };
+    const { log } = runFight(config, createRng('bless'), { log: true });
+    const casts = events(log, 'buff');
+    expect(casts.length).toBeGreaterThanOrEqual(3); // the cleric recasts after losing it, on whoever is still up
+    expect(casts[0]).toMatchObject({ actor: 'cleric', option: 'Bless' });
+    expect(events(log, 'concentration-start')[0]).toMatchObject({ spell: 'Bless' });
+    const end = events(log, 'concentration-end')[0];
+    expect(end!.kind === 'concentration-end' && end.released.map((r) => r.condition)).toEqual(['Bless', 'Bless', 'Bless']); // the first cast: three allies
+    expect(viewAt(config, log, log.length).filter((v) => v.conditions.includes('Bless'))).toEqual([]);
+    const midway = viewAt(config, log, log.findIndex((l) => l.event.kind === 'concentration-end'));
+    expect(midway.filter((v) => v.conditions.includes('Bless'))).toHaveLength(3);
   });
 });

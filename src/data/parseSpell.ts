@@ -141,7 +141,9 @@ export function parseScaling(
     const damage = new RegExp(`damage (?:\\([^)]*\\) )?increases by (\\d+d\\d+) for each ${slot}`, 'i').exec(h);
     const healing = new RegExp(`healing increases by (\\d+d\\d+) for each ${slot}`, 'i').exec(h);
     const extra = new RegExp(`(one|two|three) (?:more|additional) ${PROJECTILE} for each ${slot}`, 'i').exec(h);
+    const moreTargets = new RegExp(`(?:target|affect) (one|two|three) (?:more|additional) (?:creatures?|targets?) for each ${slot}`, 'i').exec(h);
     if (damage) scaling.upcast = { above: +damage[2]!, damageDice: damage[1]! };
+    else if (moreTargets) scaling.upcast = { above: +moreTargets[2]!, targets: NUMBER_WORDS[moreTargets[1]!.toLowerCase()]! };
     else if (healing) scaling.upcast = { above: +healing[2]!, healDice: healing[1]! };
     else if (extra) scaling.upcast = { above: +extra[2]!, count: NUMBER_WORDS[extra[1]!.toLowerCase()]! };
     else notes.push(`Higher-level effect not simulated: ${h.slice(0, 100)}`);
@@ -210,7 +212,6 @@ export function parseEffect(
 
   const ongoing = hasDamage && /at the end of (?:each of )?(?:its|the target's) (?:next )?turns?|at the start of (?:each of )?its turns?|each time|damage again/i.test(t);
   const note = (): void => {
-    if (concentration) notes.push('Concentration is not modelled');
     if (ongoing) notes.push('Repeated or delayed damage is not simulated: only the initial effect is');
     if (/additional (?:creature|target|Beast|Humanoid)/i.test(text)) notes.push('Extra targets at higher levels are not simulated');
   };
@@ -277,8 +278,14 @@ export function parseEffect(
     // A repeat-save clause is often its own sentence after the save block.
     const repeat = t.split(/(?<=[.!?])\s+(?=[A-Z])/).filter((s) => /\brepeats? the (?:save|saving throw)\b/i.test(s) && !block.includes(s));
     const effects = spellConditions([block, ...repeat].join(' '), ability, duration);
-    if (damage.length === 0 && effects.length === 0) return skip('Saving throw effect not simulated');
+    // A penalty die: "must subtract 1d4 from the attack roll or save" (Bane).
+    const penalty = /subtract (\d+d\d+) from the attack roll(?: or (?:the )?(save|saving throw))?/i.exec(t);
+    const rollModifier = penalty
+      ? { dice: penalty[1]!, sign: -1 as const, attacks: true, saves: !!penalty[2], rounds: durationRounds(duration) ?? 10 }
+      : undefined;
+    if (damage.length === 0 && effects.length === 0 && !rollModifier) return skip('Saving throw effect not simulated');
     const area = /\beach creature\b/i.test(block.slice(0, 160)) ? parseArea(t) : undefined;
+    const chosen = /^Up to (one|two|three|four|five|six|seven|eight|nine) creatures? of your choice/i.exec(t);
     note();
     return {
       kind: 'save',
@@ -286,6 +293,8 @@ export function parseEffect(
       damage,
       halfOnSave: /half as much|half the initial damage|takes half|half damage/i.test(block),
       ...(area ? { area } : {}),
+      ...(!area && chosen ? { targets: NUMBER_WORDS[chosen[1]!.toLowerCase()]! } : {}),
+      ...(rollModifier ? { rollModifier } : {}),
       ...(effects.length ? { effects } : {}),
       ...(scaling ? { scaling } : {}),
     };
@@ -379,6 +388,6 @@ export function parseSpellBlock(lines: readonly string[]): ParsedSpell {
 
   // Consistency: a cantrip's header has no level; a leveled spell must have a school.
   if (header && !school) problems.push('no school');
-  if (effect && effect.kind !== 'heal' && effect.damage.length === 0 && !effect.effects?.length) problems.push('effect with no damage or conditions');
+  if (effect && effect.kind !== 'heal' && effect.damage.length === 0 && !effect.effects?.length && !(effect.kind === 'save' && effect.rollModifier)) problems.push('effect with no damage, conditions or roll penalty');
   return { def, problems };
 }

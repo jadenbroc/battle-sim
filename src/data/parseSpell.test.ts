@@ -81,7 +81,7 @@ describe('parseScaling', () => {
 
   it('notes scaling it cannot simulate', () => {
     const n: string[] = [];
-    parseScaling('You can target one additional creature for each spell slot level above 2.', undefined, n);
+    parseScaling('The duration increases by 1 hour for each spell slot level above 2.', undefined, n);
     expect(n[0]).toMatch(/Higher-level effect not simulated/);
   });
 });
@@ -162,7 +162,7 @@ describe('parseSpellBlock', () => {
       damage: [],
       effects: [{ condition: 'paralyzed', duration: { kind: 'rounds', n: 10 }, repeatSave: { ability: 'wis', dc: 0 } }],
     });
-    expect(def.notes).toContain('Concentration is not modelled');
+    expect(def.notes).not.toContain('Concentration is not modelled');
   });
 
   it('parses healing spells', () => {

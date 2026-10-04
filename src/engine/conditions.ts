@@ -123,6 +123,8 @@ export function canStandUp(c: Creature): boolean {
 export interface ApplyContext {
   /** The creature inflicting the condition. */
   sourceId?: string;
+  /** The condition ends when this creature stops concentrating. */
+  concentrationOf?: string;
   /** Whose turn it is right now (decides how "until the end of its next turn" is counted). */
   actorId?: string;
 }
@@ -143,6 +145,7 @@ export function applyCondition(target: Creature, effect: ConditionEffect, ctx: A
     duration: effect.duration,
     ...(effect.repeatSave ? { repeatSave: effect.repeatSave } : {}),
     ...(effect.escapeDc ? { escapeDc: effect.escapeDc } : {}),
+    ...(ctx.concentrationOf ? { concentrationOf: ctx.concentrationOf } : {}),
   };
 
   const d = effect.duration;

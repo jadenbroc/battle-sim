@@ -56,7 +56,7 @@ Each creature's turn has two separate decisions: which action, then which target
 - **Area spells (no grid):** hit up to **3** enemies by default, capped at living enemies. The number is a user setting. Self-limiting spells (like Burning Hands) hit fewer.
 - **Resources:** fights start at full HP and full spell slots, and no rests occur. **No adventuring-day mode** for now.
 - **Spell slot use:** casters use the lowest slot that gets the job done.
-- **Not in Milestone 1:** concentration, reactions, opportunity attacks, movement.
+- **Not in Milestone 1:** reactions, opportunity attacks, movement. (Concentration was added later.)
 
 ## Milestone 1 (smallest useful version)
 - Import up to 8 characters from D&D Beyond PDFs, with a review/edit screen.
@@ -82,8 +82,7 @@ All 14 conditions plus Exhaustion levels follow the 2024 rules, read from the fi
 - Action choice stays "highest expected damage" (now counting advantage, automatic crits and
   exhaustion). Conditions an action inflicts are not scored: testing showed that preferring a weaker
   attack for the chance of a condition makes monsters worse.
-- Not yet: concentration, Surprised (a turn-order rule, not a condition), and the Incapacitated clause
-  about speech.
+- Not yet: Surprised (a turn-order rule, not a condition) and the Incapacitated clause about speech.
 
 ## Spell data (implemented)
 The bundled SRD 5.2.1 spell library (339 spells) lives in `src/data/srd-spells.json`, built by
@@ -102,14 +101,29 @@ spellcasting modifier, which the PDF import will read from the character sheet.
   in leaps, each a new attack and damage roll. Action choice counts the expected leaps.
 - Small areas (15 feet or less, or a 5-foot sphere) hit at most 2 creatures; larger ones use the
   fight's area-target setting.
-- Not yet: concentration (so concentration spells apply their initial effect only, and a caster may
-  have several going), extra targets from higher slots, and healing more than one creature.
+- Not yet: healing more than one creature, and the lasting effects of concentration spells that act on
+  later turns (those carry a note).
+
+## Concentration (implemented)
+A creature concentrates on one spell at a time (`Creature.concentrating`; `src/engine/concentration.ts`).
+- Casting a concentration spell starts it. A creature that is already concentrating does not start
+  another one (it would lose the first), but still uses cantrips and other actions.
+- Taking damage while still up forces a Constitution save, DC 10 or half the damage (at most 30). It also
+  ends, with no save, when the caster is Incapacitated, falls to 0 HP or dies.
+- When it ends, every effect the spell holds goes with it: the conditions it inflicted and any roll penalty.
+  The log shows the start, each save, and what ended.
+- Roll penalties (Bane: subtract 1d4 from attack rolls and saves) are a new kind of effect on a failed save.
+  The die is rolled for each of the target's attack rolls and saves. They last 1 minute (10 rounds).
+- Action choice has no damage to compare for Bane, so a roll penalty is valued as damage prevented: the
+  chance the target fails, times the average penalty out of 20, times its stat-block damage per round, over
+  `MODIFIER_HORIZON` (3) rounds. This is a heuristic and the one number to tune. Other conditions-only
+  concentration spells (Hold Person, ...) are still valued at 0, as before.
+- Not yet: Bless and other effects on allies, and concentration spells whose effect acts on later turns.
 
 ## Later milestones
-1. Concentration.
-2. Weapon mastery properties.
-3. Reactions, legendary actions, recharge abilities.
-4. More tactics profiles, shareable fight setups via URL.
+1. Weapon mastery properties.
+2. Reactions, legendary actions, recharge abilities.
+3. More tactics profiles, shareable fight setups via URL.
 
 ## Data and licensing
 - **Source of truth: dndbeyond.com.** All game content (spells, monsters, classes, conditions, weapon mastery) comes from D&D Beyond, following the 2024 rules. The author's library in `C:\AI Ecosystem\_shared\knowledge\` is built from D&D Beyond pages by the library skills (for example each spell file cites its D&D Beyond page), and the simulator reads that library. The private build writes only entries missing from the SRD bundle; where both have an entry, the SRD copy wins and the build reports any differences as a check.

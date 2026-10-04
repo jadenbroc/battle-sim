@@ -1,4 +1,5 @@
 import { attackFlags, cannotTarget, d20Penalty, defensesOf, hasCondition, isAutoCrit, saveFlags } from './conditions';
+import { rollModAverage } from './concentration';
 import { damageFactor as factor, withChosenType } from './damage';
 import { averageDice, parseDice, resolveMode, type RollMode } from './dice';
 import type { Rng } from './rng';
@@ -44,7 +45,7 @@ function attackMode(a: AttackOption, target: Creature, attacker?: Creature): Rol
 /** Chance an attack hits (a natural 20 always hits, a natural 1 always misses). */
 export function attackHitChance(a: AttackOption, target: Creature, attacker?: Creature): number {
   if (a.autoHit) return 1;
-  const bonus = a.toHit - (attacker ? d20Penalty(attacker) : 0);
+  const bonus = a.toHit - (attacker ? d20Penalty(attacker) - rollModAverage(attacker, 'attack') : 0);
   return withMode(clamp((21 - (target.ac - bonus)) / 20, 0.05, 0.95), attackMode(a, target, attacker));
 }
 
@@ -72,7 +73,7 @@ export function expectedAttackDamage(option: AttackOption, target: Creature, att
 export function saveFailChance(target: Creature, ability: SaveOption['ability'], dc: number): number {
   const sf = saveFlags(target, ability);
   if (sf.autoFail) return 1;
-  const modifier = saveModifier(target, ability) - d20Penalty(target);
+  const modifier = saveModifier(target, ability) - d20Penalty(target) + rollModAverage(target, 'save');
   const pSave = withMode(clamp((21 - (dc - modifier)) / 20, 0, 1), resolveMode(sf.advantage, sf.disadvantage));
   return 1 - pSave;
 }
@@ -199,7 +200,23 @@ function expectedFor(action: Action, targets: readonly Combatant[], primary: Com
     return base + extra;
   }
   const hit = action.area ? targets : [primary];
-  return hit.reduce((sum, t) => sum + expectedSaveDamage(action.save, t.creature), 0);
+  return hit.reduce((sum, t) => sum + expectedSaveDamage(action.save, t.creature) + rollModifierValue(action.save, t), 0);
+}
+
+/** How many rounds a roll penalty is assumed to matter (it ends with the fight, or when concentration breaks). */
+export const MODIFIER_HORIZON = 3;
+
+/**
+ * What a roll penalty is worth in damage: the target fails the save, then its attacks hit less often
+ * (the average penalty out of 20) for a few rounds, so it deals that share less of its damage per round.
+ * Only the attack part is valued; the penalty on its saves is a bonus on top.
+ */
+function rollModifierValue(s: SaveOption, target: Combatant): number {
+  const m = s.rollModifier;
+  if (!m || !m.attacks || m.sign > 0) return 0;
+  if (target.creature.rollMods?.some((x) => x.name === s.name)) return 0;
+  const swing = averageDice(m.dice) / 20;
+  return saveFailChance(target.creature, s.ability, s.dc) * swing * estimateDpr(target) * MODIFIER_HORIZON;
 }
 
 /**
@@ -224,8 +241,9 @@ export function planTurn(
   if (!primary) return null;
 
   let best: { action: Action; targets: Combatant[]; primary: Combatant; score: number } | null = null;
+  // A creature already concentrating does not start another concentration spell (it would lose the first).
   const options = usableOptions(
-    actor.actions.filter((a) => inSlot(a, slot)),
+    actor.actions.filter((a) => inSlot(a, slot) && !(a.concentration && actor.creature.concentrating)),
     actor.slots,
     actor,
   );

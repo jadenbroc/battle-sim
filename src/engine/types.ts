@@ -91,6 +91,28 @@ export interface ConditionEffect {
   escapeDc?: number;
 }
 
+/**
+ * A penalty or bonus die added to a creature's rolls (Bane: subtract 1d4 from attack rolls and saving
+ * throws). `sign` is -1 for a penalty.
+ */
+export interface RollModifier {
+  name: string;
+  dice: string;
+  sign: 1 | -1;
+  attacks: boolean;
+  saves: boolean;
+  /** How many rounds it lasts (1 minute = 10). */
+  rounds: number;
+}
+
+/** A roll modifier currently on a creature. */
+export interface ActiveRollMod extends RollModifier {
+  sourceId: string;
+  roundsLeft: number;
+  /** Ends when the source stops concentrating. */
+  concentration?: boolean;
+}
+
 /** A condition currently on a creature. */
 export interface ActiveCondition {
   name: ConditionName;
@@ -103,6 +125,8 @@ export interface ActiveCondition {
   roundsLeft?: number;
   repeatSave?: { ability: Ability; dc: number };
   escapeDc?: number;
+  /** Ends when this creature (the source) stops concentrating. */
+  concentrationOf?: string;
 }
 
 export interface AttackOption {
@@ -118,6 +142,8 @@ export interface AttackOption {
   effects?: ConditionEffect[];
   /** The damage type is chosen per attack from this list, the best one against the target (Chromatic Orb). */
   damageTypes?: DamageType[];
+  /** Cast with a concentration spell: the conditions it inflicts end when the caster stops concentrating. */
+  concentration?: true;
 }
 
 export interface SaveOption {
@@ -129,6 +155,10 @@ export interface SaveOption {
   halfOnSave: boolean;
   /** Conditions inflicted on a failed save. */
   effects?: ConditionEffect[];
+  /** A roll penalty inflicted on a failed save (Bane). */
+  rollModifier?: Omit<RollModifier, 'name'>;
+  /** Cast with a concentration spell: what it inflicts ends when the caster stops concentrating. */
+  concentration?: true;
 }
 
 /** alive = conscious; down = 0 HP and rolling death saves; stable = 0 HP, not rolling; dead. */
@@ -160,6 +190,10 @@ export interface Creature extends Defenses {
   exhaustion?: number;
   /** Conditions the creature cannot gain. */
   conditionImmunities?: ConditionName[];
+  /** The spell this creature is concentrating on. A creature concentrates on one spell at a time. */
+  concentrating?: string;
+  /** Roll penalties and bonuses currently on the creature. */
+  rollMods?: ActiveRollMod[];
 }
 
 export type Team = 'party' | 'enemies';
@@ -185,6 +219,8 @@ interface ActionBase {
   limit?: UseLimit;
   /** Takes the bonus action instead of the action. A creature gets one of each per turn. */
   bonus?: boolean;
+  /** A concentration spell: the caster concentrates on it, and a creature that already is will not cast another. */
+  concentration?: true;
   /** Only usable on a target that has this condition ("one creature that has the Prone condition"). */
   targetRequires?: ConditionName;
 }

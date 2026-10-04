@@ -1,4 +1,4 @@
-import type { Ability, ConditionEffect, DamageComponent, DamageType } from '../engine/types';
+import type { Ability, ConditionEffect, DamageComponent, DamageType, RollModifier } from '../engine/types';
 
 /**
  * How a spell grows. Everything is optional; a spell without scaling simply does not grow.
@@ -14,6 +14,8 @@ export interface SpellScaling {
     count?: number;
     /** Dice added to a healing spell per level above. */
     healDice?: string;
+    /** Extra creatures affected per level above (Bane). */
+    targets?: number;
   };
   cantrip?: {
     /** One die of this size is added at each of levels 5, 11 and 17 ("1d10"). */
@@ -55,6 +57,10 @@ export interface SaveSpellEffect {
   halfOnSave: boolean;
   /** Set when the spell hits every creature in an area rather than a single target. */
   area?: SpellArea;
+  /** "Up to three creatures of your choice": how many the spell affects (when it has no area). */
+  targets?: number;
+  /** A penalty die on the target's attack rolls and saves while it lasts (Bane). */
+  rollModifier?: Omit<RollModifier, 'name'>;
   effects?: ConditionEffect[];
   scaling?: SpellScaling;
 }

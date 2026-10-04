@@ -11,6 +11,7 @@ import {
   type Removal,
 } from './conditions';
 import { creatureSave, performAttack, performSave, type AttackEvent, type SaveEvent } from './combat';
+import { concentrationDc, mustStop, releaseConcentration, tickRollMods, type ConcentrationEndReason, type Released } from './concentration';
 import { rollD20, rollDice } from './dice';
 import { heal, rollDeathSave, type DeathSaveResult } from './hp';
 import type { Rng } from './rng';
@@ -54,6 +55,10 @@ export type LogEvent =
   | ({ kind: 'death-save'; actor: string } & DeathSaveResult)
   | { kind: 'recharge'; actor: string; option: string; roll: number; success: boolean }
   | { kind: 'condition-end'; target: string; condition: ConditionName; reason: ConditionEndReason }
+  | { kind: 'concentration-start'; actor: string; spell: string; replaced?: string }
+  | { kind: 'concentration-check'; actor: string; spell: string; damage: number; dc: number; roll: number; autoFail: boolean; success: boolean }
+  | { kind: 'concentration-end'; actor: string; spell: string; reason: ConcentrationEndReason; released: Released[] }
+  | { kind: 'modifier-end'; target: string; name: string }
   | { kind: 'repeat-save'; actor: string; condition: ConditionName; roll: number; dc: number; autoFail: boolean; success: boolean }
   | { kind: 'escape'; actor: string; roll: number; dc: number; success: boolean }
   | { kind: 'skip'; actor: string; reason: string }
@@ -160,6 +165,43 @@ export function runFight(config: FightConfig, rng: Rng, opts: { log?: boolean } 
     for (const r of removed) push(round, { kind: 'condition-end', target: r.creature.name, condition: r.condition.name, reason });
   };
 
+  /** Stop a creature's concentration, ending everything the spell was doing. */
+  const stopConcentrating = (round: number, caster: Combatant, reason: ConcentrationEndReason): void => {
+    const spell = caster.creature.concentrating;
+    if (!spell) return;
+    const released = releaseConcentration(creatures, caster.creature);
+    push(round, { kind: 'concentration-end', actor: caster.creature.name, spell, reason, released });
+    logRemovals(round, releaseLinked(creatures), 'released');
+  };
+
+  /** Anyone concentrating who has been knocked out, killed or made Incapacitated loses the spell. */
+  const sweepConcentration = (round: number): void => {
+    for (const f of fighters) {
+      const why = f.creature.concentrating ? mustStop(f.creature) : null;
+      if (why) stopConcentrating(round, f, why);
+    }
+  };
+
+  /** A concentrating creature that took damage and is still up makes a Constitution save to keep the spell. */
+  const concentrationCheck = (round: number, target: Combatant, damageTaken: number): void => {
+    const c = target.creature;
+    if (!c.concentrating || damageTaken <= 0 || c.status !== 'alive') return;
+    const dc = concentrationDc(damageTaken);
+    const r = creatureSave(rng, c, 'con', dc);
+    push(round, { kind: 'concentration-check', actor: c.name, spell: c.concentrating, damage: damageTaken, dc, roll: r.roll.total, autoFail: r.autoFail, success: r.success });
+    if (!r.success) stopConcentrating(round, target, 'failed-save');
+  };
+
+  /** Casting a concentration spell: the caster concentrates on it, dropping any earlier spell. */
+  const beginConcentration = (round: number, actor: Combatant, action: { name: string; spell?: string; concentration?: true }): void => {
+    if (!action.concentration) return;
+    const replaced = actor.creature.concentrating;
+    if (replaced) stopConcentrating(round, actor, 'replaced');
+    const spell = action.spell ?? action.name;
+    actor.creature.concentrating = spell;
+    push(round, { kind: 'concentration-start', actor: actor.creature.name, spell, ...(replaced ? { replaced } : {}) });
+  };
+
   const execute = (round: number, actor: Combatant, plan: Plan): void => {
     if (plan.kind === 'heal') {
       spend(actor, plan.action);
@@ -170,16 +212,20 @@ export function runFight(config: FightConfig, rng: Rng, opts: { log?: boolean } 
 
     if (plan.kind === 'save') {
       spend(actor, plan.action);
+      beginConcentration(round, actor, plan.action);
       for (const target of plan.targets) {
         const e = performSave(rng, actor.creature, plan.action.save, target.creature);
         addDamage(actor, e.totalDamage);
         push(round, e);
+        concentrationCheck(round, target, e.totalDamage);
       }
       logRemovals(round, releaseLinked(creatures), 'released');
+      sweepConcentration(round);
       return;
     }
 
     spend(actor, plan.action);
+    beginConcentration(round, actor, plan.action);
     const enemies = fighters.filter((f) => f.team !== actor.team);
     const attacks = attackSequence(plan.action);
     let struck = false;
@@ -190,6 +236,7 @@ export function runFight(config: FightConfig, rng: Rng, opts: { log?: boolean } 
       const e = performAttack(rng, actor.creature, attacks[i]!, target.creature);
       addDamage(actor, e.totalDamage);
       push(round, e);
+      concentrationCheck(round, target, e.totalDamage);
       struck = e.attackRoll.hit;
     }
     // A leaping attack (Chromatic Orb): after a hit it may jump to a different enemy and attack again.
@@ -204,9 +251,11 @@ export function runFight(config: FightConfig, rng: Rng, opts: { log?: boolean } 
         const e = performAttack(rng, actor.creature, plan.action.attack, next.creature);
         addDamage(actor, e.totalDamage);
         push(round, e);
+        concentrationCheck(round, next, e.totalDamage);
         struck = e.attackRoll.hit;
       }
     }
+    sweepConcentration(round);
     logRemovals(round, releaseLinked(creatures), 'released');
   };
 
@@ -256,6 +305,7 @@ export function runFight(config: FightConfig, rng: Rng, opts: { log?: boolean } 
     round++;
     push(round, { kind: 'round-start', round });
     logRemovals(round, tickRounds(creatures), 'expired');
+    for (const m of tickRollMods(creatures)) push(round, { kind: 'modifier-end', target: m.target, name: m.condition });
 
     for (const { fighter: actor } of order) {
       const c = actor.creature;
@@ -297,6 +347,7 @@ export function runFight(config: FightConfig, rng: Rng, opts: { log?: boolean } 
       }
 
       endOfTurn(round, actor);
+      sweepConcentration(round);
       outcome = checkEnd(fighters);
       if (outcome) break;
     }

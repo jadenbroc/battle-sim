@@ -127,6 +127,8 @@ function scalingFor(s: SpellScaling | undefined, spellLevel: number, slot: numbe
     /** Extra darts or rays from a higher slot, on top of the spell's own count. */
     extraCount: s?.upcast?.count ? over * s.upcast.count : 0,
     heal: s?.upcast?.healDice ? ([s.upcast.healDice, over] as const) : undefined,
+    /** Extra creatures affected by a higher slot (Bane). */
+    extraTargets: s?.upcast?.targets ? over * s.upcast.targets : 0,
     over,
   };
 }
@@ -151,7 +153,8 @@ export function spellToActions(spell: SpellDef, ctx: CasterContext): ConvertedSp
   for (const slot of slots) {
     const sc = scalingFor(effect.scaling, spell.level, slot, ctx.characterLevel);
     const name = slot > spell.level && spell.level > 0 ? `${spell.name} (level ${slot})` : spell.name;
-    const common = { name, spell: spell.name, ...(slot > 0 ? { slotLevel: slot } : {}), ...(bonus ? { bonus: true as const } : {}) };
+    const conc = spell.concentration ? { concentration: true as const } : {};
+    const common = { name, spell: spell.name, ...(slot > 0 ? { slotLevel: slot } : {}), ...(bonus ? { bonus: true as const } : {}), ...conc };
 
     if (effect.kind === 'heal') {
       let dice = effect.dice;
@@ -176,6 +179,7 @@ export function spellToActions(spell: SpellDef, ctx: CasterContext): ConvertedSp
           range: effect.range,
           ...(effect.autoHit ? { autoHit: true } : {}),
           ...(effect.damageTypes ? { damageTypes: effect.damageTypes } : {}),
+          ...conc,
           ...(effect.effects ? { effects: resolveEffects(effect.effects, ctx.spellSaveDC) } : {}),
         },
         ...(count > 1 ? { count } : {}),
@@ -183,7 +187,8 @@ export function spellToActions(spell: SpellDef, ctx: CasterContext): ConvertedSp
       };
       out.actions.push(action);
     } else {
-      const maxTargets = areaMaxTargets(effect.area);
+      const chosen = effect.targets ? effect.targets + sc.extraTargets : undefined;
+      const maxTargets = chosen ?? areaMaxTargets(effect.area);
       const action: SaveAction = {
         ...common,
         kind: 'save',
@@ -193,9 +198,11 @@ export function spellToActions(spell: SpellDef, ctx: CasterContext): ConvertedSp
           dc: ctx.spellSaveDC,
           damage,
           halfOnSave: effect.halfOnSave,
+          ...(effect.rollModifier ? { rollModifier: effect.rollModifier } : {}),
+          ...conc,
           ...(effect.effects ? { effects: resolveEffects(effect.effects, ctx.spellSaveDC) } : {}),
         },
-        ...(effect.area ? { area: true } : {}),
+        ...(effect.area || chosen ? { area: true } : {}),
         ...(maxTargets ? { maxTargets } : {}),
       };
       out.actions.push(action);

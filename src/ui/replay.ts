@@ -52,6 +52,7 @@ export function viewAt(config: FightConfig, log: readonly LoggedEvent[], count: 
         v.status = event.outcome.statusAfter;
       }
       add(event.applied);
+      if (event.kind === 'save') for (const name of event.marked ?? []) views.get(event.target)?.conditions.push(name);
     } else if (event.kind === 'heal') {
       const v = views.get(event.target);
       if (v && v.status !== 'dead') {
@@ -68,6 +69,10 @@ export function viewAt(config: FightConfig, log: readonly LoggedEvent[], count: 
       else if (event.outcome === 'died') v.status = 'dead';
     } else if (event.kind === 'condition-end') {
       remove(event.target, event.condition);
+    } else if (event.kind === 'concentration-end') {
+      for (const r of event.released) remove(r.target, r.condition);
+    } else if (event.kind === 'modifier-end') {
+      remove(event.target, event.name);
     } else if (event.kind === 'repeat-save' && event.success) {
       remove(event.actor, event.condition);
     } else if (event.kind === 'escape' && event.success) {
@@ -85,8 +90,8 @@ function dropNote(target: string, o: DamageOutcome | null): string {
   return '';
 }
 
-function appliedNote(applied: readonly AppliedCondition[]): string {
-  return applied.map((a) => ` ${a.target} is now ${cap(a.condition)}.`).join('');
+function appliedNote(applied: readonly AppliedCondition[], target = '', marked: readonly string[] = []): string {
+  return applied.map((a) => ` ${a.target} is now ${cap(a.condition)}.`).join('') + marked.map((m) => ` ${target} is now under ${m}.`).join('');
 }
 
 function damageText(parts: { type: string; final: number; effect: string }[]): string {
@@ -122,8 +127,8 @@ export function formatEvent(event: LogEvent): FormattedEvent {
         ? `${event.caster} uses ${event.option} on ${event.target}: automatically fails the save`
         : `${event.caster} uses ${event.option} on ${event.target}: save ${s.roll.total}${dice}, ${s.success ? 'success' : 'fail'}`;
       const dmg = event.damage.length ? `takes ${damageText(event.damage)}` : 'takes no damage';
-      const tail = event.damage.length === 0 && event.applied.length > 0 ? '.' : `, ${dmg}.`;
-      return { kind, text: `${head}${tail}${dropNote(event.target, event.outcome)}${appliedNote(event.applied)}` };
+      const tail = event.damage.length === 0 && (event.applied.length > 0 || event.marked?.length) ? '.' : `, ${dmg}.`;
+      return { kind, text: `${head}${tail}${dropNote(event.target, event.outcome)}${appliedNote(event.applied, event.target, event.marked)}` };
     }
     case 'heal':
       return { kind, text: `${event.actor} casts ${event.option} on ${event.target}, restoring ${event.amount} HP.` };
@@ -146,6 +151,22 @@ export function formatEvent(event: LogEvent): FormattedEvent {
       const how = { expired: 'the effect ends', released: 'released', 'stood-up': 'stands up' }[event.reason];
       return { kind, text: `${event.target} is no longer ${cap(event.condition)} (${how}).` };
     }
+    case 'concentration-start':
+      return { kind, text: `${event.actor} begins concentrating on ${event.spell}${event.replaced ? `, dropping ${event.replaced}` : ''}.` };
+    case 'concentration-check':
+      return {
+        kind,
+        text: event.autoFail
+          ? `${event.actor} automatically fails the concentration save on ${event.spell}.`
+          : `${event.actor} makes a concentration save on ${event.spell} after ${event.damage} damage: ${event.roll} vs DC ${event.dc}, ${event.success ? 'holds' : 'fails'}.`,
+      };
+    case 'concentration-end': {
+      const why = { 'failed-save': 'failed the save', incapacitated: 'incapacitated', down: 'knocked out', dead: 'dead', replaced: 'started another spell' }[event.reason];
+      const gone = event.released.length ? ` ${event.released.map((r) => `${r.target}'s ${cap(r.condition)}`).join(', ')} ends.` : '';
+      return { kind, text: `${event.actor}'s concentration on ${event.spell} ends (${why}).${gone}` };
+    }
+    case 'modifier-end':
+      return { kind, text: `${event.target} is no longer under ${event.name}.` };
     case 'repeat-save':
       return {
         kind,

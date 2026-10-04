@@ -1,5 +1,6 @@
 import { applyCondition, attackFlags, d20Penalty, defensesOf, isAutoCrit, saveFlags } from './conditions';
 import { rollD20, resolveMode, type D20Result, type RollMode } from './dice';
+import { addRollMod, rollModTotal } from './concentration';
 import { adjustAll, rollDamage, withChosenType, type AdjustedDamage } from './damage';
 import { applyDamage, type DamageOutcome } from './hp';
 import type { Rng } from './rng';
@@ -70,6 +71,8 @@ export interface SaveEvent {
   totalDamage: number;
   outcome: DamageOutcome | null;
   applied: AppliedCondition[];
+  /** Roll penalties put on the target by a failed save (Bane). */
+  marked?: string[];
 }
 
 export interface AdvantageFlags {
@@ -95,16 +98,16 @@ export function creatureSave(
     const roll: D20Result = { natural: 0, rolls: [], modifier, total: 0, isNat20: false, isNat1: false };
     return { roll, success: false, autoFail: true, mode };
   }
-  return { ...rollSave(rng, modifier, dc, mode), autoFail: false, mode };
+  return { ...rollSave(rng, modifier + rollModTotal(rng, target, 'save'), dc, mode), autoFail: false, mode };
 }
 
 /** Inflict an attack's or save's conditions on a target (honouring any save to avoid them). */
-function inflict(rng: Rng, source: Creature, target: Creature, effects: readonly ConditionEffect[] | undefined): AppliedCondition[] {
+function inflict(rng: Rng, source: Creature, target: Creature, effects: readonly ConditionEffect[] | undefined, concentration = false): AppliedCondition[] {
   const applied: AppliedCondition[] = [];
   for (const effect of effects ?? []) {
     if (target.status === 'dead') break;
     if (effect.avoidSave && creatureSave(rng, target, effect.avoidSave.ability, effect.avoidSave.dc).success) continue;
-    if (applyCondition(target, effect, { sourceId: source.id, actorId: source.id })) {
+    if (applyCondition(target, effect, { sourceId: source.id, actorId: source.id, ...(concentration ? { concentrationOf: source.id } : {}) })) {
       applied.push({ target: target.name, condition: effect.condition });
     }
   }
@@ -127,7 +130,7 @@ export function performAttack(
   // An auto-hit attack makes no roll: it hits, and with no attack roll it cannot crit.
   const rolled: AttackRollResult = option.autoHit
     ? { roll: { natural: 0, rolls: [], modifier: 0, total: 0, isNat20: false, isNat1: false }, hit: true, crit: false }
-    : rollAttack(rng, option.toHit - d20Penalty(attacker), target.ac, mode);
+    : rollAttack(rng, option.toHit - d20Penalty(attacker) + rollModTotal(rng, attacker, 'attack'), target.ac, mode);
   const crit = rolled.crit || (!option.autoHit && rolled.hit && isAutoCrit(target, melee));
   const attackRoll = { ...rolled, crit };
   const base = {
@@ -143,7 +146,7 @@ export function performAttack(
 
   const { parts, total } = adjustAll(rollDamage(rng, option.damage, { crit }), defensesOf(target));
   const outcome = applyDamage(target, total, { crit });
-  const applied = inflict(rng, attacker, target, option.effects);
+  const applied = inflict(rng, attacker, target, option.effects, !!option.concentration);
   return { ...base, damage: parts, totalDamage: total, outcome, applied };
 }
 
@@ -162,6 +165,10 @@ export function performSave(
 
   const { parts, total } = adjustAll(rollDamage(rng, option.damage), defensesOf(target), { halve: saveRoll.success });
   const outcome = applyDamage(target, total);
-  const applied = saveRoll.success ? [] : inflict(rng, caster, target, option.effects);
-  return { ...base, damage: parts, totalDamage: total, outcome, applied };
+  const applied = saveRoll.success ? [] : inflict(rng, caster, target, option.effects, !!option.concentration);
+  const marked =
+    option.rollModifier && !saveRoll.success && target.status !== 'dead'
+      ? [addRollMod(target, option.rollModifier, option.name, caster.id, !!option.concentration).name]
+      : undefined;
+  return { ...base, damage: parts, totalDamage: total, outcome, applied, ...(marked ? { marked } : {}) };
 }

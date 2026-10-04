@@ -3,7 +3,7 @@ import { parseDice } from '../engine/dice';
 import { runFight } from '../engine/fight';
 import { createRng } from '../engine/rng';
 import { makeCombatant } from '../engine/testUtil';
-import { isConditionName, isDamageType, type Action, type AttackAction, type Combatant } from '../engine/types';
+import { isConditionName, isDamageType, type Action, type AttackAction, type Combatant, type SaveAction } from '../engine/types';
 import type { SpellDef } from './spellTypes';
 import { CANTRIP_TIERS, addDice, areaMaxTargets, cantripTier, loadBookSpells, matchChance, loadSrdSpells, searchSpells, spellToActions, spellsToActions, type CasterContext } from './spells';
 
@@ -53,7 +53,7 @@ describe('bundled SRD spell library', () => {
         expect(() => parseDice(e.dice), s.name).not.toThrow();
         continue;
       }
-      expect(e.damage.length + (e.effects?.length ?? 0), s.name).toBeGreaterThan(0);
+      expect(e.damage.length + (e.effects?.length ?? 0) + (e.kind === 'save' && e.rollModifier ? 1 : 0), s.name).toBeGreaterThan(0);
       for (const d of e.damage) {
         expect(isDamageType(d.type), `${s.name} ${d.type}`).toBe(true);
         expect(() => parseDice(d.dice), `${s.name} ${d.dice}`).not.toThrow();
@@ -227,7 +227,7 @@ describe('spellToActions', () => {
   });
 
   it('warns about parts of a spell that are only partly simulated', () => {
-    expect(spellToActions(get('phantasmal-killer'), ctx({ slotLevels: [4] })).warnings.join(' ')).toMatch(/Concentration is not modelled/);
+    expect(spellToActions(get('phantasmal-killer'), ctx({ slotLevels: [4] })).warnings.join(' ')).toMatch(/Repeated or delayed damage is not simulated/);
   });
 
   it('converts a list of spells together', () => {
@@ -322,5 +322,25 @@ describe('Chromatic Orb', () => {
   it('computes the chance that dice match', () => {
     expect(matchChance('1d8')).toBe(0);
     expect(matchChance('2d6')).toBeCloseTo(1 / 6, 5);
+  });
+});
+
+describe('Bane', () => {
+  it('is a concentration save spell with a roll penalty, more targets at higher slots', async () => {
+    const bane = (await loadSrdSpells()).find((s) => s.id === 'bane')!;
+    expect(bane.effect).toMatchObject({ kind: 'save', ability: 'cha', targets: 3, rollModifier: { dice: '1d4', sign: -1, attacks: true, saves: true, rounds: 10 } });
+    expect(bane.notes).toEqual([]);
+    const ctx = { characterLevel: 5, spellAttackBonus: 6, spellSaveDC: 14, spellModifier: 3, slotLevels: [1, 3] };
+    const [low, high] = spellToActions(bane, ctx).actions as SaveAction[];
+    expect(low).toMatchObject({ name: 'Bane', concentration: true, area: true, maxTargets: 3 });
+    expect(low!.save).toMatchObject({ dc: 14, concentration: true, rollModifier: { dice: '1d4' } });
+    expect(high!.maxTargets).toBe(5);
+  });
+  it('marks concentration spells with an effect', async () => {
+    const lib = await loadSrdSpells();
+    const hold = lib.find((s) => s.id === 'hold-person')!;
+    expect(spellToActions(hold, { characterLevel: 5, spellAttackBonus: 6, spellSaveDC: 14, spellModifier: 3 }).actions[0]).toMatchObject({ concentration: true });
+    const fireball = lib.find((s) => s.id === 'fireball')!;
+    expect(spellToActions(fireball, { characterLevel: 5, spellAttackBonus: 6, spellSaveDC: 14, spellModifier: 3 }).actions[0]!.concentration).toBeUndefined();
   });
 });

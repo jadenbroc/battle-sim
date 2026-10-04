@@ -207,3 +207,14 @@ describe('book monsters', () => {
     expect(book.filter((m) => ids.has(m.id))).toEqual([]);
   });
 });
+
+describe('Swashbuckler (Monsters of the Multiverse)', () => {
+  it('is bundled with its stat block and a one-dagger, two-rapier multiattack', async () => {
+    const m = (await loadBookMonsters()).find((x) => x.id === 'swashbuckler')!;
+    expect(m).toMatchObject({ cr: '3', size: 'medium', type: 'humanoid', ac: 17, hp: 66, hitDice: '12d8+12', xp: 700 });
+    expect(m.abilityScores).toEqual({ str: 12, dex: 18, con: 12, int: 14, wis: 11, cha: 15 });
+    expect(m.multiattack?.parts).toEqual([{ action: 'Dagger', count: 1 }, { action: 'Rapier', count: 2 }]);
+    const combatants = monsterToCombatants(m, 1);
+    expect(combatants[0]!.actions.length).toBeGreaterThan(0);
+  });
+});

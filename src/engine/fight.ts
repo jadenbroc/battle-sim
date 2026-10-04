@@ -182,6 +182,7 @@ export function runFight(config: FightConfig, rng: Rng, opts: { log?: boolean } 
     spend(actor, plan.action);
     const enemies = fighters.filter((f) => f.team !== actor.team);
     const attacks = attackSequence(plan.action);
+    let struck = false;
     for (let i = 0; i < attacks.length; i++) {
       if (checkEnd(fighters)) break;
       const target = i === 0 ? plan.target : chooseTarget(actor.profile, targetsFor(actor, enemies), rng);
@@ -189,6 +190,22 @@ export function runFight(config: FightConfig, rng: Rng, opts: { log?: boolean } 
       const e = performAttack(rng, actor.creature, attacks[i]!, target.creature);
       addDamage(actor, e.totalDamage);
       push(round, e);
+      struck = e.attackRoll.hit;
+    }
+    // A leaping attack (Chromatic Orb): after a hit it may jump to a different enemy and attack again.
+    const leap = plan.action.leap;
+    if (leap) {
+      const done = new Set([plan.target.creature.id]);
+      for (let k = 0; struck && k < leap.max && !checkEnd(fighters); k++) {
+        if (rng.next() >= leap.chance) break;
+        const next = chooseTarget(actor.profile, targetsFor(actor, enemies).filter((f) => !done.has(f.creature.id)), rng);
+        if (!next) break;
+        done.add(next.creature.id);
+        const e = performAttack(rng, actor.creature, plan.action.attack, next.creature);
+        addDamage(actor, e.totalDamage);
+        push(round, e);
+        struck = e.attackRoll.hit;
+      }
     }
     logRemovals(round, releaseLinked(creatures), 'released');
   };

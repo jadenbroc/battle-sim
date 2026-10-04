@@ -1,4 +1,4 @@
-import type { Ability, ConditionEffect, DamageComponent } from '../engine/types';
+import type { Ability, ConditionEffect, DamageComponent, DamageType } from '../engine/types';
 
 /**
  * How a spell grows. Everything is optional; a spell without scaling simply does not grow.
@@ -39,6 +39,10 @@ export interface AttackSpellEffect {
   count?: number;
   /** The attacks always hit (Magic Missile). */
   autoHit?: boolean;
+  /** The caster picks one of these damage types per cast (Chromatic Orb); `damage` carries the dice. */
+  damageTypes?: DamageType[];
+  /** After a hit on matching damage dice the spell leaps to another target (Chromatic Orb). */
+  leaps?: boolean;
   effects?: ConditionEffect[];
   scaling?: SpellScaling;
 }

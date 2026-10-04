@@ -3,9 +3,9 @@ import { parseDice } from '../engine/dice';
 import { runFight } from '../engine/fight';
 import { createRng } from '../engine/rng';
 import { makeCombatant } from '../engine/testUtil';
-import { isConditionName, isDamageType, type Action, type Combatant } from '../engine/types';
+import { isConditionName, isDamageType, type Action, type AttackAction, type Combatant } from '../engine/types';
 import type { SpellDef } from './spellTypes';
-import { CANTRIP_TIERS, addDice, areaMaxTargets, cantripTier, loadBookSpells, loadSrdSpells, searchSpells, spellToActions, spellsToActions, type CasterContext } from './spells';
+import { CANTRIP_TIERS, addDice, areaMaxTargets, cantripTier, loadBookSpells, matchChance, loadSrdSpells, searchSpells, spellToActions, spellsToActions, type CasterContext } from './spells';
 
 let lib: SpellDef[];
 const get = (id: string): SpellDef => {
@@ -303,5 +303,24 @@ describe('book spells', () => {
     expect(book.find((s) => s.id === 'toll-the-dead')?.effect?.kind).toBe('save');
     const ids = new Set(srd.map((s) => s.id));
     expect(book.filter((s) => ids.has(s.id))).toEqual([]);
+  });
+});
+
+describe('Chromatic Orb', () => {
+  it('is simulated with a chosen type and leaps', async () => {
+    const orb = (await loadSrdSpells()).find((s) => s.id === 'chromatic-orb')!;
+    expect(orb.effect).toMatchObject({ kind: 'attack', damageTypes: ['acid', 'cold', 'fire', 'lightning', 'poison', 'thunder'], leaps: true });
+    const ctx = { characterLevel: 5, spellAttackBonus: 6, spellSaveDC: 14, spellModifier: 3, slotLevels: [1, 3] };
+    const [low, high] = spellToActions(orb, ctx).actions as AttackAction[];
+    expect(low!.attack.damage).toEqual([{ dice: '3d8', type: 'acid' }]);
+    expect(low!.leap!.max).toBe(1);
+    expect(low!.leap!.chance).toBeCloseTo(0.34375, 5);
+    expect(high!.attack.damage[0]!.dice).toBe('5d8');
+    expect(high!.leap!.max).toBe(3);
+    expect(high!.leap!.chance).toBeCloseTo(1 - (7 / 8) * (6 / 8) * (5 / 8) * (4 / 8), 5);
+  });
+  it('computes the chance that dice match', () => {
+    expect(matchChance('1d8')).toBe(0);
+    expect(matchChance('2d6')).toBeCloseTo(1 / 6, 5);
   });
 });

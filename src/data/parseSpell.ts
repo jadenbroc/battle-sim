@@ -221,9 +221,20 @@ export function parseEffect(
     const afterHit = t.slice(Math.max(0, t.search(/on a hit/i)));
     // The damage usually follows "On a hit"; some texts put it before ("..., 1d8 fire damage on a hit").
     const fromDice = (s: string): string => s.slice(Math.max(0, s.search(/\d+d\d+/)));
-    const damage = [afterHit, t.slice(attack.index)]
+    let damage = [afterHit, t.slice(attack.index)]
       .map((s) => parseSpellDamage(fromDice(s)))
       .find((d) => d.length > 0) ?? [];
+    // The caster chooses the type: "Choose Acid, Cold, Fire, ... for the type" and "3d8 damage of the chosen type".
+    let damageTypes: DamageType[] | undefined;
+    const choice = /[Cc]hoose ((?:[A-Z][a-z]+,? (?:or |and )?)+)for the type/.exec(t);
+    const chosenDice = /(\d+d\d+(?:\s*[+-]\s*\d+)?)\s+damage of the chosen type/i.exec(t);
+    if (damage.length === 0 && choice && chosenDice) {
+      const types = choice[1]!.replace(/\b(?:or|and)\s+/g, '').split(/,\s*|\s+/).map((s) => s.trim().toLowerCase()).filter(Boolean);
+      if (types.length > 0 && types.every(isDamageType)) {
+        damageTypes = types as DamageType[];
+        damage = [{ dice: chosenDice[1]!.replace(/\s+/g, ''), type: damageTypes[0]! }];
+      }
+    }
     if (damage.length === 0) {
       notes.push('Attack spell without parseable damage');
       return undefined;
@@ -235,6 +246,8 @@ export function parseEffect(
       kind: 'attack',
       range: attack[1]!.toLowerCase() as 'melee' | 'ranged',
       damage,
+      ...(damageTypes ? { damageTypes } : {}),
+      ...(damageTypes && /leaps? to (?:a|another) different target/i.test(t) ? { leaps: true } : {}),
       ...(count && /for each/i.test(t) ? { count: NUMBER_WORDS[count[1]!.toLowerCase()]! } : {}),
       ...(effects.length ? { effects } : {}),
       ...(scaling ? { scaling } : {}),

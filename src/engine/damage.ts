@@ -1,6 +1,6 @@
 import { rollDice } from './dice';
 import type { Rng } from './rng';
-import type { DamageComponent, DamageType, Defenses } from './types';
+import type { AttackOption, DamageComponent, DamageType, Defenses } from './types';
 
 export interface RolledDamage {
   type: DamageType;
@@ -58,4 +58,22 @@ export function adjustAll(
 ): { parts: AdjustedDamage[]; total: number } {
   const adjusted = parts.map((p) => adjustDamage(p, defenses, opts));
   return { parts: adjusted, total: adjusted.reduce((sum, p) => sum + p.final, 0) };
+}
+
+/** Damage multiplier of a type against defenses: 0 immune, 0.5 resistant, 2 vulnerable. */
+export function damageFactor(type: DamageType, d: Defenses): number {
+  if (d.immunities.includes(type)) return 0;
+  return (d.resistances.includes(type) ? 0.5 : 1) * (d.vulnerabilities.includes(type) ? 2 : 1);
+}
+
+/** The type that does the most against these defenses; the first listed wins a tie. */
+export function pickDamageType(types: readonly DamageType[], d: Defenses): DamageType {
+  return types.reduce((best, t) => (damageFactor(t, d) > damageFactor(best, d) ? t : best));
+}
+
+/** An attack whose type is chosen per cast, with the best type filled in for this target. */
+export function withChosenType(option: AttackOption, d: Defenses): AttackOption {
+  if (!option.damageTypes?.length || option.damage.length === 0) return option;
+  const type = pickDamageType(option.damageTypes, d);
+  return { ...option, damage: option.damage.map((c, i) => (i === 0 ? { ...c, type } : c)) };
 }

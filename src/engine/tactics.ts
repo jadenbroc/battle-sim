@@ -1,4 +1,5 @@
 import { attackFlags, cannotTarget, d20Penalty, defensesOf, hasCondition, isAutoCrit, saveFlags } from './conditions';
+import { damageFactor as factor, withChosenType } from './damage';
 import { averageDice, parseDice, resolveMode, type RollMode } from './dice';
 import type { Rng } from './rng';
 import {
@@ -10,8 +11,6 @@ import {
   type AttackOption,
   type Combatant,
   type Creature,
-  type Defenses,
-  type DamageType,
   type HealAction,
   type SaveAction,
   type SaveOption,
@@ -28,11 +27,6 @@ export type Plan =
   | { kind: 'heal'; action: HealAction; target: Combatant };
 
 const clamp = (v: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, v));
-
-function factor(type: DamageType, d: Defenses): number {
-  if (d.immunities.includes(type)) return 0;
-  return (d.resistances.includes(type) ? 0.5 : 1) * (d.vulnerabilities.includes(type) ? 2 : 1);
-}
 
 /** Chance a d20 roll with this much advantage or disadvantage beats a single-roll chance `p`. */
 function withMode(p: number, mode: RollMode): number {
@@ -58,7 +52,8 @@ export function attackHitChance(a: AttackOption, target: Creature, attacker?: Cr
  * Expected damage of one attack roll: hit chance (nat 20 hits, nat 1 misses) and crit chance.
  * Pass the attacker to account for conditions (advantage, auto-crits, exhaustion).
  */
-export function expectedAttackDamage(a: AttackOption, target: Creature, attacker?: Creature): number {
+export function expectedAttackDamage(option: AttackOption, target: Creature, attacker?: Creature): number {
+  const a = withChosenType(option, defensesOf(target));
   const melee = (a.range ?? 'melee') === 'melee';
   const pHit = attackHitChance(a, target, attacker);
   const mode = attackMode(a, target, attacker);
@@ -194,7 +189,14 @@ function planHeal(actor: Combatant, allies: readonly Combatant[], slot: Slot): P
  */
 function expectedFor(action: Action, targets: readonly Combatant[], primary: Combatant, actor: Combatant): number {
   if (action.kind === 'attack') {
-    return attackSequence(action).reduce((sum, a) => sum + expectedAttackDamage(a, primary.creature, actor.creature), 0);
+    const base = attackSequence(action).reduce((sum, a) => sum + expectedAttackDamage(a, primary.creature, actor.creature), 0);
+    if (!action.leap) return base;
+    // Each leap needs the previous attack to hit and the dice to match; a leap is valued like a repeat of the attack.
+    const p = attackHitChance(action.attack, primary.creature, actor.creature) * action.leap.chance;
+    const each = expectedAttackDamage(action.attack, primary.creature, actor.creature);
+    let extra = 0;
+    for (let k = 1, reach = p; k <= action.leap.max; k++, reach *= p) extra += reach * each;
+    return base + extra;
   }
   const hit = action.area ? targets : [primary];
   return hit.reduce((sum, t) => sum + expectedSaveDamage(action.save, t.creature), 0);

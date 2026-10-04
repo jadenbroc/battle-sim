@@ -82,6 +82,14 @@ function addHealDice(dice: string, extra: string, times: number): string {
   return `${base.count + add.count * times}d${base.sides}${base.modifier ? (base.modifier > 0 ? '+' : '') + base.modifier : ''}`;
 }
 
+/** Chance that at least two of the dice in an expression such as "3d8" show the same number. */
+export function matchChance(dice: string): number {
+  const { count, sides } = parseDice(dice);
+  let allDifferent = 1;
+  for (let i = 0; i < count; i++) allDifferent *= Math.max(0, sides - i) / sides;
+  return 1 - allDifferent;
+}
+
 /** Which of the cantrip's three upgrades (levels 5, 11, 17) the character has reached. */
 export function cantripTier(characterLevel: number): number {
   return CANTRIP_TIERS.filter((l) => characterLevel >= l).length;
@@ -167,9 +175,11 @@ export function spellToActions(spell: SpellDef, ctx: CasterContext): ConvertedSp
           damage,
           range: effect.range,
           ...(effect.autoHit ? { autoHit: true } : {}),
+          ...(effect.damageTypes ? { damageTypes: effect.damageTypes } : {}),
           ...(effect.effects ? { effects: resolveEffects(effect.effects, ctx.spellSaveDC) } : {}),
         },
         ...(count > 1 ? { count } : {}),
+        ...(effect.leaps ? { leap: { chance: matchChance(damage[0]!.dice), max: slot } } : {}),
       };
       out.actions.push(action);
     } else {

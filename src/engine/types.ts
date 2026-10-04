@@ -116,6 +116,8 @@ export interface AttackOption {
   autoHit?: boolean;
   /** Conditions inflicted on a hit. */
   effects?: ConditionEffect[];
+  /** The damage type is chosen per attack from this list, the best one against the target (Chromatic Orb). */
+  damageTypes?: DamageType[];
 }
 
 export interface SaveOption {
@@ -194,6 +196,11 @@ export interface AttackAction extends ActionBase {
   count?: number;
   /** Mixed Multiattack (e.g. 2 Claw + 1 Bite): attacks made in order. Overrides `attack` and `count`. */
   sequence?: AttackOption[];
+  /**
+   * After a hit the attack may leap to a different enemy and attack again (Chromatic Orb): each leap
+   * happens with probability `chance`, at most `max` times.
+   */
+  leap?: { chance: number; max: number };
 }
 
 /** Uses an action starts a fight with. */

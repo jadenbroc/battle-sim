@@ -1,6 +1,6 @@
 import { applyCondition, attackFlags, d20Penalty, defensesOf, isAutoCrit, saveFlags } from './conditions';
 import { rollD20, resolveMode, type D20Result, type RollMode } from './dice';
-import { adjustAll, rollDamage, type AdjustedDamage } from './damage';
+import { adjustAll, rollDamage, withChosenType, type AdjustedDamage } from './damage';
 import { applyDamage, type DamageOutcome } from './hp';
 import type { Rng } from './rng';
 import {
@@ -115,10 +115,11 @@ function inflict(rng: Rng, source: Creature, target: Creature, effects: readonly
 export function performAttack(
   rng: Rng,
   attacker: Creature,
-  option: AttackOption,
+  chosen: AttackOption,
   target: Creature,
   flags: AdvantageFlags = {},
 ): AttackEvent {
+  const option = withChosenType(chosen, defensesOf(target));
   const melee = (option.range ?? 'melee') === 'melee';
   const cf = attackFlags(attacker, target, melee);
   const mode = option.autoHit ? 'normal' : resolveMode(!!flags.advantage || cf.advantage, !!flags.disadvantage || cf.disadvantage);

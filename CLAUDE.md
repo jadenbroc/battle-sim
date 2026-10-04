@@ -90,12 +90,16 @@ The bundled SRD 5.2.1 spell library (339 spells) lives in `src/data/srd-spells.j
 `npm run data:build`; see `docs/spell-format.md`. A spell stores what it does (attack, save, heal, the
 conditions it inflicts, and how it scales); the caster supplies the save DC, attack bonus and
 spellcasting modifier, which the PDF import will read from the character sheet.
-- 41 damaging spells and 5 healing spells are simulated. Spells with no effect (reactions, summons,
+- 42 damaging spells and 5 healing spells are simulated. Spells with no effect (reactions, summons,
   walls, zones such as Spirit Guardians, concentration spells used on later turns, smites, buffs on a
   willing creature, spells with a menu of effects) carry a note saying why.
 - Higher slots scale damage, healing and the number of darts and rays; cantrips scale at character
   levels 5, 11 and 17. Casters use the lowest slot that is available.
 - Magic Missile darts hit automatically (no attack roll, so no crit).
+- Chromatic Orb picks, for each cast, the damage type that does the most against the target (immunity,
+  then resistance, then vulnerability). Its leap is a chance, not a position: after a hit the orb leaps to a
+  different enemy with the probability that two or more of its d8s match (34% at 3d8), up to the slot level
+  in leaps, each a new attack and damage roll. Action choice counts the expected leaps.
 - Small areas (15 feet or less, or a 5-foot sphere) hit at most 2 creatures; larger ones use the
   fight's area-target setting.
 - Not yet: concentration (so concentration spells apply their initial effect only, and a caster may

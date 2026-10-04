@@ -1,4 +1,4 @@
-import { attackFlags, cannotTarget, d20Penalty, defensesOf, hasCondition, isAutoCrit, saveFlags } from './conditions';
+import { armorClass, attackFlags, cannotTarget, d20Penalty, defensesOf, hasCondition, isAutoCrit, saveFlags } from './conditions';
 import { rollModAverage } from './concentration';
 import { damageFactor as factor, withChosenType } from './damage';
 import { averageDice, parseDice, resolveMode, type RollMode } from './dice';
@@ -11,6 +11,7 @@ import {
   type AttackAction,
   type AttackOption,
   type BuffAction,
+  type RollModifier,
   type Combatant,
   type Creature,
   type HealAction,
@@ -48,7 +49,7 @@ function attackMode(a: AttackOption, target: Creature, attacker?: Creature): Rol
 export function attackHitChance(a: AttackOption, target: Creature, attacker?: Creature): number {
   if (a.autoHit) return 1;
   const bonus = a.toHit - (attacker ? d20Penalty(attacker) - rollModAverage(attacker, 'attack') : 0);
-  return withMode(clamp((21 - (target.ac - bonus)) / 20, 0.05, 0.95), attackMode(a, target, attacker));
+  return withMode(clamp((21 - (armorClass(target) - bonus)) / 20, 0.05, 0.95), attackMode(a, target, attacker));
 }
 
 /**
@@ -190,7 +191,7 @@ function planHeal(actor: Combatant, allies: readonly Combatant[], slot: Slot): P
  * they still apply when the action is used, but choosing a weaker attack for the chance of a
  * condition made monsters worse in testing (a Ghoul that claws for paralysis instead of biting).
  */
-function expectedFor(action: Action, targets: readonly Combatant[], primary: Combatant, actor: Combatant): number {
+function expectedFor(action: Action, targets: readonly Combatant[], primary: Combatant, actor: Combatant, rounds: number): number {
   if (action.kind === 'attack') {
     const base = attackSequence(action).reduce((sum, a) => sum + expectedAttackDamage(a, primary.creature, actor.creature), 0);
     if (!action.leap) return base;
@@ -202,53 +203,121 @@ function expectedFor(action: Action, targets: readonly Combatant[], primary: Com
     return base + extra;
   }
   const hit = action.area ? targets : [primary];
-  return hit.reduce((sum, t) => sum + expectedSaveDamage(action.save, t.creature) + rollModifierValue(action.save, t), 0);
+  return hit.reduce((sum, t) => sum + expectedSaveDamage(action.save, t.creature) + rollModifierValue(action.save, t, rounds), 0);
 }
 
-/** How many rounds a roll penalty is assumed to matter (it ends with the fight, or when concentration breaks). */
+/** How many rounds a lasting effect is assumed to matter at most (it ends with the fight). */
 export const MODIFIER_HORIZON = 3;
+
+/**
+ * How many rounds a concentration effect is expected to last: each round it survives with the chance that the
+ * caster is not hit, or is hit and keeps concentrating (a Constitution save against the minimum DC of 10).
+ * With no risk it is `MODIFIER_HORIZON` rounds. A caster who is likely to be hit buffs less.
+ */
+function lastingRounds(actor: Combatant, allies: readonly Combatant[], enemies: readonly Combatant[]): number {
+  const up = allies.filter((a) => a.creature.status === 'alive').length || 1;
+  const foes = enemies.filter((e) => e.creature.status === 'alive').length;
+  const pHit = clamp((foes / up) * 0.6, 0, 1);
+  const pHold = clamp((saveModifier(actor.creature, 'con') + 11) / 20, 0, 1);
+  const keeps = 1 - pHit * (1 - pHold);
+  let rounds = 0;
+  for (let k = 1, p = keeps; k <= MODIFIER_HORIZON; k++, p *= keeps) rounds += p;
+  return rounds;
+}
+
+/** Haste's lethargy costs a lost turn, but only if the spell ends before the fight does: about half the time. */
+const LETHARGY_RISK = 0.5;
+
+/** Assumed chance that an extra weapon attack hits. */
+const EXTRA_ATTACK_HIT = 0.6;
 
 /**
  * What a roll penalty is worth in damage: the target fails the save, then its attacks hit less often
  * (the average penalty out of 20) for a few rounds, so it deals that share less of its damage per round.
  * Only the attack part is valued; the penalty on its saves is a bonus on top.
  */
-function rollModifierValue(s: SaveOption, target: Combatant): number {
+function rollModifierValue(s: SaveOption, target: Combatant, rounds: number): number {
   const m = s.rollModifier;
-  if (!m || !m.attacks || m.sign > 0) return 0;
+  if (!m || !m.attacks || m.sign > 0 || !m.dice) return 0;
   if (target.creature.rollMods?.some((x) => x.name === s.name)) return 0;
   const swing = averageDice(m.dice) / 20;
-  return saveFailChance(target.creature, s.ability, s.dc) * swing * estimateDpr(target) * MODIFIER_HORIZON;
+  return saveFailChance(target.creature, s.ability, s.dc) * swing * estimateDpr(target) * rounds;
+}
+
+/** A creature's plain weapon attacks: not spells, not limited, not bonus actions. */
+function weaponAttacks(c: Combatant): AttackAction[] {
+  return c.actions.filter((a): a is AttackAction => a.kind === 'attack' && !a.slotLevel && !a.spell && !a.limit && !a.bonus);
+}
+
+/** Average damage of one hit of the creature's best weapon attack. */
+function bestWeaponHit(c: Combatant): number {
+  return weaponAttacks(c).reduce((best, a) => Math.max(best, a.attack.damage.reduce((sum, d) => sum + Math.max(0, averageDice(d.dice)), 0)), 0);
+}
+
+/** Damage an ally is expected to take per round: the enemies' damage spread over the party. */
+function incomingPerRound(allies: readonly Combatant[], enemies: readonly Combatant[]): number {
+  const up = allies.filter((a) => a.creature.status === 'alive').length || 1;
+  return enemies.filter((e) => e.creature.status === 'alive').reduce((sum, e) => sum + estimateDpr(e), 0) / up;
 }
 
 /**
- * Cast a buff (Bless) on the allies who gain the most: those that deal the most damage per round.
- * Its worth is the extra damage the bonus brings: the average bonus out of 20 is added to each attack's
- * chance to hit, so each ally deals that share more of its damage per round, over a few rounds.
- * Returns the best buff and its value, or null when there is nobody left to bless.
+ * What a buff is worth to one ally, in damage: per round, the bonus die adds its average out of 20 to the
+ * ally's hit chance, an AC bonus takes that much off the enemies' hit chance, and an extra attack is a
+ * weapon hit at a typical hit chance; over a few rounds. Haste's lethargy is subtracted.
  */
-function planBuff(actor: Combatant, allies: readonly Combatant[], slot: Slot): { plan: Plan; score: number } | null {
+function buffValue(m: Omit<RollModifier, 'name'>, ally: Combatant, allies: readonly Combatant[], enemies: readonly Combatant[], rounds: number): number {
+  let perRound = 0;
+  if (m.dice && m.attacks && m.sign > 0) perRound += (averageDice(m.dice) / 20) * estimateDpr(ally);
+  if (m.acBonus) perRound += (m.acBonus / 20) * incomingPerRound(allies, enemies);
+  if (m.extraAttack) perRound += bestWeaponHit(ally) * EXTRA_ATTACK_HIT;
+  let value = perRound * rounds;
+  if (m.endsWith?.condition === 'incapacitated') value -= LETHARGY_RISK * estimateDpr(ally);
+  return value;
+}
+
+/**
+ * Cast a buff (Bless, Shield of Faith, Haste) on the allies who gain the most. Returns the best buff and
+ * its value, or null when there is nobody left worth buffing.
+ */
+function planBuff(actor: Combatant, allies: readonly Combatant[], enemies: readonly Combatant[], slot: Slot): { plan: Plan; score: number } | null {
   const usable = usableOptions(
     (actor.buffs ?? []).filter((b) => inSlot(b, slot) && !(b.concentration && actor.creature.concentrating)),
     actor.slots,
     actor,
   );
   let best: { plan: Plan; score: number } | null = null;
+  const rounds = lastingRounds(actor, allies, enemies);
   for (const action of usable) {
-    const m = action.rollModifier;
-    if (!m.attacks || m.sign < 0) continue;
     const gains = allies
-      .filter((a) => a.creature.status === 'alive' && !a.creature.rollMods?.some((x) => x.name === action.spell && x.sourceId === actor.creature.id))
-      .map((a) => ({ ally: a, value: (averageDice(m.dice) / 20) * estimateDpr(a) * MODIFIER_HORIZON }))
-      .sort((x, y) => y.value - x.value)
+      .filter((a) => a.creature.status === 'alive' && !a.creature.rollMods?.some((x) => x.name === (action.spell ?? action.name) && x.sourceId === actor.creature.id))
+      .map((a) => ({ ally: a, value: buffValue(action.rollModifier, a, allies, enemies, rounds) }))
+      .filter((g) => g.value > 0)
+      // The same value (an AC bonus is worth the same to everyone): the one closest to falling.
+      .sort((x, y) => y.value - x.value || x.ally.creature.hp - y.ally.creature.hp)
       .slice(0, action.maxTargets);
     const score = gains.reduce((sum, g) => sum + g.value, 0);
-    if (gains.length === 0 || score <= 0) continue;
+    if (gains.length === 0) continue;
     if (!best || score > best.score) best = { plan: { kind: 'buff', action, targets: gains.map((g) => g.ally) }, score };
   }
   return best;
 }
 
+/** Haste's additional action: one attack with the best weapon attack against a target. */
+export function planExtraAttack(actor: Combatant, fighters: readonly Combatant[], rng: Rng): Plan | null {
+  if (!(actor.creature.rollMods ?? []).some((m) => m.extraAttack)) return null;
+  const target = chooseTarget(actor.profile, targetsFor(actor, fighters.filter((f) => f.team !== actor.team)), rng);
+  if (!target) return null;
+  let best: AttackAction | null = null;
+  let bestScore = -1;
+  for (const a of weaponAttacks(actor)) {
+    const score = expectedAttackDamage(a.attack, target.creature, actor.creature);
+    if (score > bestScore) {
+      best = { kind: 'attack', name: a.name, attack: a.attack };
+      bestScore = score;
+    }
+  }
+  return best ? { kind: 'attack', action: best, target } : null;
+}
 /**
  * Decide what one creature does with its action or bonus action: heal if an ally is low, else
  * the best damage option. Returns null when it has nothing usable (common for bonus actions).
@@ -271,6 +340,7 @@ export function planTurn(
   if (!primary) return null;
 
   let best: { action: Action; targets: Combatant[]; primary: Combatant; score: number } | null = null;
+  const rounds = lastingRounds(actor, allies, enemies);
   // A creature already concentrating does not start another concentration spell (it would lose the first).
   const options = usableOptions(
     actor.actions.filter((a) => inSlot(a, slot) && !(a.concentration && actor.creature.concentrating)),
@@ -287,11 +357,11 @@ export function planTurn(
     const cap = action.kind === 'save' && action.area ? Math.min(areaTargets, action.maxTargets ?? Infinity) : 1;
     const areaList = [...pool].sort((a, b) => b.creature.hp - a.creature.hp);
     const targets = action.kind === 'save' && action.area ? areaList.slice(0, Math.max(1, cap)) : [target];
-    const score = expectedFor(action, targets, target, actor);
+    const score = expectedFor(action, targets, target, actor, rounds);
     if (!best || score > best.score) best = { action, targets, primary: target, score };
   }
   // A buff is cast when it is worth more than the best attack (Bless over a cantrip, not over a big spell).
-  const buff = planBuff(actor, allies, slot);
+  const buff = planBuff(actor, allies, enemies, slot);
   if (buff && (!best || buff.score > best.score)) return buff.plan;
   if (!best) return null;
 

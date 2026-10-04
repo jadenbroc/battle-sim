@@ -73,6 +73,8 @@ export function viewAt(config: FightConfig, log: readonly LoggedEvent[], count: 
       remove(event.target, event.condition);
     } else if (event.kind === 'concentration-end') {
       for (const r of event.released) remove(r.target, r.condition);
+    } else if (event.kind === 'condition-gained') {
+      views.get(event.target)?.conditions.push(event.condition);
     } else if (event.kind === 'modifier-end') {
       remove(event.target, event.name);
     } else if (event.kind === 'repeat-save' && event.success) {
@@ -169,6 +171,8 @@ export function formatEvent(event: LogEvent): FormattedEvent {
       const gone = event.released.length ? ` ${event.released.map((r) => `${r.target}'s ${cap(r.condition)}`).join(', ')} ends.` : '';
       return { kind, text: `${event.actor}'s concentration on ${event.spell} ends (${why}).${gone}` };
     }
+    case 'condition-gained':
+      return { kind, text: `${event.target} is now ${cap(event.condition)} (${event.cause} has ended).` };
     case 'modifier-end':
       return { kind, text: `${event.target} is no longer under ${event.name}.` };
     case 'repeat-save':

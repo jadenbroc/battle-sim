@@ -89,7 +89,7 @@ The bundled SRD 5.2.1 spell library (339 spells) lives in `src/data/srd-spells.j
 `npm run data:build`; see `docs/spell-format.md`. A spell stores what it does (attack, save, heal, the
 conditions it inflicts, and how it scales); the caster supplies the save DC, attack bonus and
 spellcasting modifier, which the PDF import will read from the character sheet.
-- 42 damaging spells, 5 healing spells and 2 effect spells (Bane, Bless) are simulated. Spells with no effect (reactions, summons,
+- 42 damaging spells, 5 healing spells and 4 effect spells (Bane, Bless, Shield of Faith, Haste) are simulated. Spells with no effect (reactions, summons,
   walls, zones such as Spirit Guardians, concentration spells used on later turns, smites, buffs on a
   willing creature, spells with a menu of effects) carry a note saying why.
 - Higher slots scale damage, healing and the number of darts and rays; cantrips scale at character
@@ -124,8 +124,21 @@ A creature concentrates on one spell at a time (`Creature.concentrating`; `src/e
   over `MODIFIER_HORIZON` rounds, and the allies who deal the most damage get it. So a cleric blesses the
   fighter and rogue before a weak cantrip, but a big damage spell still wins. It is not cast again on
   allies who already have it, and a caster who is already concentrating does not cast it.
-- Not yet: other effects on allies (Haste, Shield of Faith, ...) and concentration spells whose effect acts
-  on later turns.
+- **Shield of Faith** (+2 AC, bonus action, one creature) and **Haste** use the same mechanism. Armor Class
+  includes the bonus when attacks are rolled and when odds are judged. Haste adds +2 AC, advantage on Dexterity
+  saves and an additional action each turn, limited to one weapon attack (the creature's best plain weapon
+  attack, rolled after its other actions). When Haste ends, by lost concentration or by running out, the
+  creature is Incapacitated until the end of its next turn. Speed doubling has no effect (no grid).
+- Buff value in action choice: an AC bonus is worth its share of the enemies' damage (+2 is 10% of the damage
+  one ally takes per round), an extra attack a weapon hit at a 60% hit chance, over `MODIFIER_HORIZON` rounds;
+  Haste subtracts half a turn of the target's damage for lethargy. Shield of Faith goes on the ally closest to
+  falling.
+- Concentration risk: every concentration effect is valued over the rounds it is expected to last, not a fixed
+  `MODIFIER_HORIZON` (3): each round it survives unless the caster is hit and fails a Constitution save against
+  DC 10. A caster that is likely to be hit (few allies to share the enemies' attention, a low Constitution
+  save) buffs less, and a caster who just lost Haste to a hit does not keep recasting it.
+- Not yet: other effects on allies (Mage Armor, Longstrider, Warding Bond, ...) and concentration spells
+  whose effect acts on later turns.
 
 ## Later milestones
 1. Weapon mastery properties.

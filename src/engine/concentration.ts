@@ -1,7 +1,7 @@
 import { rollDice, averageDice } from './dice';
 import { hasCondition, removeCondition } from './conditions';
 import type { Rng } from './rng';
-import type { ActiveRollMod, Creature, RollModifier } from './types';
+import type { ActiveRollMod, ConditionEffect, Creature, RollModifier } from './types';
 
 // Concentration (2024 rules): a creature concentrates on one spell at a time. It ends when the
 // creature starts another concentration spell, is Incapacitated or dies, or fails a Constitution save
@@ -24,6 +24,8 @@ export interface Released {
   target: string;
   /** A condition or roll-modifier name. */
   condition: string;
+  /** What the creature gets now that the effect is over (Haste's lethargy). */
+  ends?: ConditionEffect;
 }
 
 /** End a creature's concentration and remove everything it was holding on others. */
@@ -39,7 +41,7 @@ export function releaseConcentration(creatures: readonly Creature[], caster: Cre
     for (const m of [...(c.rollMods ?? [])]) {
       if (!m.concentration || m.sourceId !== caster.id) continue;
       c.rollMods = (c.rollMods ?? []).filter((x) => x !== m);
-      released.push({ target: c.name, condition: m.name });
+      released.push({ target: c.name, condition: m.name, ...(m.endsWith ? { ends: m.endsWith } : {}) });
     }
   }
   return released;
@@ -59,14 +61,14 @@ const applies = (m: ActiveRollMod, kind: 'attack' | 'save'): boolean => (kind ==
 /** Roll the dice of every modifier that applies to this kind of roll. The total is signed. */
 export function rollModTotal(rng: Rng, c: Creature, kind: 'attack' | 'save'): number {
   let total = 0;
-  for (const m of c.rollMods ?? []) if (applies(m, kind)) total += m.sign * rollDice(rng, m.dice).total;
+  for (const m of c.rollMods ?? []) if (m.dice && applies(m, kind)) total += m.sign * rollDice(rng, m.dice).total;
   return total;
 }
 
 /** The average of rollModTotal, for judging odds without rolling. */
 export function rollModAverage(c: Creature, kind: 'attack' | 'save'): number {
   let total = 0;
-  for (const m of c.rollMods ?? []) if (applies(m, kind)) total += m.sign * averageDice(m.dice);
+  for (const m of c.rollMods ?? []) if (m.dice && applies(m, kind)) total += m.sign * averageDice(m.dice);
   return total;
 }
 
@@ -78,7 +80,7 @@ export function tickRollMods(creatures: readonly Creature[]): Released[] {
       m.roundsLeft -= 1;
       if (m.roundsLeft <= 0) {
         c.rollMods = (c.rollMods ?? []).filter((x) => x !== m);
-        ended.push({ target: c.name, condition: m.name });
+        ended.push({ target: c.name, condition: m.name, ...(m.endsWith ? { ends: m.endsWith } : {}) });
       }
     }
   }

@@ -1,5 +1,6 @@
 import {
   activeNames,
+  applyCondition,
   canAct,
   canStandUp,
   d20Penalty,
@@ -15,7 +16,7 @@ import { addRollMod, concentrationDc, mustStop, releaseConcentration, tickRollMo
 import { rollD20, rollDice } from './dice';
 import { heal, rollDeathSave, type DeathSaveResult } from './hp';
 import type { Rng } from './rng';
-import { chooseTarget, planTurn, targetsFor, type Plan } from './tactics';
+import { chooseTarget, planExtraAttack, planTurn, targetsFor, type Plan } from './tactics';
 import {
   abilityMod,
   attackSequence,
@@ -60,6 +61,7 @@ export type LogEvent =
   | { kind: 'concentration-check'; actor: string; spell: string; damage: number; dc: number; roll: number; autoFail: boolean; success: boolean }
   | { kind: 'concentration-end'; actor: string; spell: string; reason: ConcentrationEndReason; released: Released[] }
   | { kind: 'modifier-end'; target: string; name: string }
+  | { kind: 'condition-gained'; target: string; condition: ConditionName; cause: string }
   | { kind: 'repeat-save'; actor: string; condition: ConditionName; roll: number; dc: number; autoFail: boolean; success: boolean }
   | { kind: 'escape'; actor: string; roll: number; dc: number; success: boolean }
   | { kind: 'skip'; actor: string; reason: string }
@@ -166,12 +168,25 @@ export function runFight(config: FightConfig, rng: Rng, opts: { log?: boolean } 
     for (const r of removed) push(round, { kind: 'condition-end', target: r.creature.name, condition: r.condition.name, reason });
   };
 
+  /** Whose turn it is, so a condition that lasts until the end of its next turn is counted from the right turn. */
+  let turnOf: string | undefined;
+
+  /** What a creature gets when a spell on it ends (Haste: Incapacitated until the end of its next turn). */
+  const applyEnds = (round: number, ended: readonly Released[]): void => {
+    for (const r of ended) {
+      const c = r.ends ? creatures.find((x) => x.name === r.target) : undefined;
+      const cond = c && r.ends ? applyCondition(c, r.ends, { actorId: turnOf }) : null;
+      if (c && cond) push(round, { kind: 'condition-gained', target: c.name, condition: cond.name, cause: r.condition });
+    }
+  };
+
   /** Stop a creature's concentration, ending everything the spell was doing. */
   const stopConcentrating = (round: number, caster: Combatant, reason: ConcentrationEndReason): void => {
     const spell = caster.creature.concentrating;
     if (!spell) return;
     const released = releaseConcentration(creatures, caster.creature);
     push(round, { kind: 'concentration-end', actor: caster.creature.name, spell, reason, released });
+    applyEnds(round, released);
     logRemovals(round, releaseLinked(creatures), 'released');
   };
 
@@ -317,11 +332,15 @@ export function runFight(config: FightConfig, rng: Rng, opts: { log?: boolean } 
     round++;
     push(round, { kind: 'round-start', round });
     logRemovals(round, tickRounds(creatures), 'expired');
-    for (const m of tickRollMods(creatures)) push(round, { kind: 'modifier-end', target: m.target, name: m.condition });
+    turnOf = undefined;
+    const wornOff = tickRollMods(creatures);
+    for (const m of wornOff) push(round, { kind: 'modifier-end', target: m.target, name: m.condition });
+    applyEnds(round, wornOff);
 
     for (const { fighter: actor } of order) {
       const c = actor.creature;
       if (c.status === 'dead' || c.status === 'stable') continue;
+      turnOf = c.id;
 
       logRemovals(round, expireAt(creatures, c.id, 'start'), 'expired');
 
@@ -354,6 +373,9 @@ export function runFight(config: FightConfig, rng: Rng, opts: { log?: boolean } 
           if (plan) execute(round, actor, plan);
           const bonus = checkEnd(fighters) ? null : planTurn(actor, fighters, rng, options.areaTargets, 'bonus');
           if (bonus) execute(round, actor, bonus);
+          // Haste's additional action: one more attack.
+          const extra = checkEnd(fighters) ? null : planExtraAttack(actor, fighters, rng);
+          if (extra) execute(round, actor, extra);
           if (!escaped && !plan && !bonus) push(round, { kind: 'no-action', actor: c.name });
         }
       }

@@ -1,4 +1,4 @@
-import { applyCondition, attackFlags, d20Penalty, defensesOf, isAutoCrit, saveFlags } from './conditions';
+import { applyCondition, armorClass, attackFlags, d20Penalty, defensesOf, isAutoCrit, saveFlags } from './conditions';
 import { rollD20, resolveMode, type D20Result, type RollMode } from './dice';
 import { addRollMod, rollModTotal } from './concentration';
 import { adjustAll, rollDamage, withChosenType, type AdjustedDamage } from './damage';
@@ -130,7 +130,7 @@ export function performAttack(
   // An auto-hit attack makes no roll: it hits, and with no attack roll it cannot crit.
   const rolled: AttackRollResult = option.autoHit
     ? { roll: { natural: 0, rolls: [], modifier: 0, total: 0, isNat20: false, isNat1: false }, hit: true, crit: false }
-    : rollAttack(rng, option.toHit - d20Penalty(attacker) + rollModTotal(rng, attacker, 'attack'), target.ac, mode);
+    : rollAttack(rng, option.toHit - d20Penalty(attacker) + rollModTotal(rng, attacker, 'attack'), armorClass(target), mode);
   const crit = rolled.crit || (!option.autoHit && rolled.hit && isAutoCrit(target, melee));
   const attackRoll = { ...rolled, crit };
   const base = {

@@ -92,17 +92,27 @@ export interface ConditionEffect {
 }
 
 /**
- * A penalty or bonus die added to a creature's rolls (Bane: subtract 1d4 from attack rolls and saving
- * throws). `sign` is -1 for a penalty.
+ * A lasting modifier on a creature from a spell. Mostly a penalty or bonus die on its rolls (Bane: subtract
+ * 1d4 from attack rolls and saving throws; `sign` is -1 for a penalty), but also an AC bonus (Shield of
+ * Faith), Haste's advantage on Dex saves and extra attack, and what happens when it ends (Haste's lethargy).
  */
 export interface RollModifier {
   name: string;
-  dice: string;
+  /** The die added to (or subtracted from) rolls. Absent when the effect has none (Shield of Faith). */
+  dice?: string;
   sign: 1 | -1;
   attacks: boolean;
   saves: boolean;
   /** How many rounds it lasts (1 minute = 10). */
   rounds: number;
+  /** Added to Armor Class. */
+  acBonus?: number;
+  /** Advantage on Dexterity saving throws. */
+  dexSaveAdvantage?: boolean;
+  /** One extra attack per turn (Haste's additional action, limited to one weapon attack). */
+  extraAttack?: boolean;
+  /** A condition the creature gets when the effect ends (Haste: Incapacitated until the end of its next turn). */
+  endsWith?: ConditionEffect;
 }
 
 /** A roll modifier currently on a creature. */

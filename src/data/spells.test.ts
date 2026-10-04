@@ -54,7 +54,7 @@ describe('bundled SRD spell library', () => {
         continue;
       }
       if (e.kind === 'buff') {
-        expect(() => parseDice(e.rollModifier.dice), s.name).not.toThrow();
+        if (e.rollModifier.dice) expect(() => parseDice(e.rollModifier.dice!), s.name).not.toThrow();
         continue;
       }
       expect(e.damage.length + (e.effects?.length ?? 0) + (e.kind === 'save' && e.rollModifier ? 1 : 0), s.name).toBeGreaterThan(0);
@@ -89,7 +89,7 @@ describe('bundled SRD spell library', () => {
   });
 
   it('leaves out what it cannot simulate, with a reason', () => {
-    for (const id of ['spirit-guardians', 'moonbeam', 'hex', 'shield', 'counterspell', 'misty-step', 'fly', 'haste', 'conjure-animals', 'wall-of-fire']) {
+    for (const id of ['spirit-guardians', 'moonbeam', 'hex', 'shield', 'counterspell', 'misty-step', 'fly', 'conjure-animals', 'wall-of-fire']) {
       const s = lib.find((x) => x.id === id);
       if (!s) continue;
       expect(s.effect, id).toBeUndefined();
@@ -356,5 +356,27 @@ describe('Bless', () => {
     const c = spellToActions(bless, { characterLevel: 5, spellAttackBonus: 6, spellSaveDC: 14, spellModifier: 3, slotLevels: [1, 3] });
     expect(c.actions).toEqual([]);
     expect(c.buffs.map((b) => [b.name, b.maxTargets, b.concentration, b.slotLevel])).toEqual([['Bless', 3, true, 1], ['Bless (level 3)', 5, true, 3]]);
+  });
+});
+
+describe('Shield of Faith and Haste', () => {
+  const ctx = { characterLevel: 5, spellAttackBonus: 6, spellSaveDC: 14, spellModifier: 3 };
+  it('reads Shield of Faith as a +2 AC bonus action on one creature', async () => {
+    const faith = (await loadSrdSpells()).find((s) => s.id === 'shield-of-faith')!;
+    expect(faith.effect).toMatchObject({ kind: 'buff', targets: 1, rollModifier: { acBonus: 2, rounds: 100, attacks: false } });
+    expect(spellToActions(faith, ctx).buffs[0]).toMatchObject({ name: 'Shield of Faith', bonus: true, concentration: true, maxTargets: 1 });
+  });
+  it('reads Haste as AC, Dex save advantage, an extra attack and lethargy', async () => {
+    const haste = (await loadSrdSpells()).find((s) => s.id === 'haste')!;
+    expect(haste.effect).toMatchObject({
+      kind: 'buff',
+      targets: 1,
+      rollModifier: { acBonus: 2, dexSaveAdvantage: true, extraAttack: true, rounds: 10, endsWith: { condition: 'incapacitated', duration: { kind: 'endOfTargetNextTurn' } } },
+    });
+    expect(spellToActions(haste, ctx).buffs).toHaveLength(1);
+  });
+  it('reads only these three spells as buffs', async () => {
+    const buffs = (await loadSrdSpells()).filter((s) => s.effect?.kind === 'buff').map((s) => s.id).sort();
+    expect(buffs).toEqual(['bless', 'haste', 'shield-of-faith']);
   });
 });

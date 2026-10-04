@@ -170,6 +170,37 @@ export function parseScaling(
   return scaling.upcast || scaling.cantrip ? scaling : undefined;
 }
 
+/**
+ * A buff on allies with no roll of its own: a bonus die ("adds 1d4 to the attack roll or save", Bless), an
+ * AC bonus ("+2 bonus to AC", Shield of Faith) or Haste's package (extra attack, Dex save advantage, AC,
+ * and Incapacitated when it ends).
+ */
+export function parseBuff(t: string, duration: string, scaling: SpellScaling | undefined): SpellEffect | undefined {
+  const die = /\badds? (\d+d\d+) to the attack roll(?: or (?:the )?(save|saving throw))?/i.exec(t);
+  const ac = /\+(\d+) bonus to (?:Armor Class|AC)\b/i.exec(t);
+  const extraAttack = /additional action on each of its turns/i.test(t) && /one attack only/i.test(t);
+  if (!die && !ac && !extraAttack) return undefined;
+  const upTo = /\bup to (one|two|three|four|five|six|seven|eight|nine) creatures?\b/i.exec(t);
+  const targets = upTo ? NUMBER_WORDS[upTo[1]!.toLowerCase()]! : /\b(?:a|one) (?:willing )?creature\b/i.test(t) ? 1 : undefined;
+  if (!targets) return undefined;
+  return {
+    kind: 'buff',
+    targets,
+    rollModifier: {
+      ...(die ? { dice: die[1]! } : {}),
+      sign: 1,
+      attacks: !!die,
+      saves: !!die?.[2],
+      rounds: durationRounds(duration) ?? 10,
+      ...(ac ? { acBonus: +ac[1]! } : {}),
+      ...(/Advantage on Dexterity saving throws/i.test(t) ? { dexSaveAdvantage: true } : {}),
+      ...(extraAttack ? { extraAttack: true } : {}),
+      ...(/When the spell ends, the target is Incapacitated/i.test(t) ? { endsWith: { condition: 'incapacitated' as const, duration: { kind: 'endOfTargetNextTurn' as const } } } : {}),
+    },
+    ...(scaling ? { scaling } : {}),
+  };
+}
+
 /** Work out what the spell does, if the simulator can model it. */
 export function parseEffect(
   text: string,
@@ -193,6 +224,11 @@ export function parseEffect(
     notes.push(reason);
     return undefined;
   };
+  // Buffs on allies (Bless, Shield of Faith, Haste) are handled before the willing-creature skip below.
+  if (!hasDamage) {
+    const buff = parseBuff(t, duration, scaling);
+    if (buff) return buff;
+  }
   if (hasDamage && /enters? (?:the|that|an) (?:area|spell's area)|ends? (?:its|a) turn (?:there|in the)|starts? its turn (?:there|in the)|for the first time on a turn|moves? into/i.test(t)) {
     return skip('Zone or lasting area effect: not simulated');
   }
@@ -215,19 +251,6 @@ export function parseEffect(
     if (ongoing) notes.push('Repeated or delayed damage is not simulated: only the initial effect is');
     if (/additional (?:creature|target|Beast|Humanoid)/i.test(text)) notes.push('Extra targets at higher levels are not simulated');
   };
-
-  // A bonus die on allies: "You bless up to three creatures... adds 1d4 to the attack roll or save" (Bless).
-  const bonusDie = /\badds? (\d+d\d+) to the attack roll(?: or (?:the )?(save|saving throw))?/i.exec(t);
-  const upTo = /\bup to (one|two|three|four|five|six|seven|eight|nine) creatures?\b/i.exec(t);
-  if (bonusDie && upTo && !hasDamage) {
-    note();
-    return {
-      kind: 'buff',
-      targets: NUMBER_WORDS[upTo[1]!.toLowerCase()]!,
-      rollModifier: { dice: bonusDie[1]!, sign: 1, attacks: true, saves: !!bonusDie[2], rounds: durationRounds(duration) ?? 10 },
-      ...(scaling ? { scaling } : {}),
-    };
-  }
 
   // Attack spells: "Make a ranged spell attack... On a hit, the target takes 1d10 Fire damage."
   const attack = /\b(ranged|melee) spell attack\b/i.exec(t);

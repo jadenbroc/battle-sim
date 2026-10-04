@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { viewAt } from '../ui/replay';
-import { performAttack, performSave } from './combat';
+import { creatureSave, performAttack, performSave } from './combat';
 import { addRollMod, concentrationDc, rollModAverage, tickRollMods } from './concentration';
 import { runFight, type LoggedEvent } from './fight';
 import { createRng } from './rng';
@@ -171,7 +171,8 @@ describe('valuing a roll penalty', () => {
     const cleric = makeCombatant('cleric', 'party', {});
     cleric.actions = [cantrip(), baneAction()];
     const foes = goblins();
-    const plan = planTurn(cleric, [cleric, ...foes], createRng('v'), 3);
+    const friends = [makeCombatant('f1', 'party', {}), makeCombatant('f2', 'party', {})]; // the foes' attention is shared
+    const plan = planTurn(cleric, [cleric, ...friends, ...foes], createRng('v'), 3);
     expect(plan?.action.name).toBe('Bane');
     expect(plan?.kind === 'save' && plan.targets).toHaveLength(3);
   });
@@ -195,7 +196,7 @@ describe('buffs (Bless)', () => {
     cleric.buffs = [blessAction()];
     const fighter = makeCombatant('fighter', 'party', { dmg: '1d8+4' });
     const rogue = makeCombatant('rogue', 'party', { dmg: '1d6+3' });
-    const wizard = makeCombatant('wizard', 'party', { dmg: '1d4' });
+    const wizard = makeCombatant('wizard', 'party', { dmg: '1' });
     return [cleric, fighter, rogue, wizard];
   };
   const foe = (): Combatant => makeCombatant('foe', 'enemies', { hp: 500, dmg: '0', toHit: -10 });
@@ -239,8 +240,92 @@ describe('buffs (Bless)', () => {
     expect(events(log, 'concentration-start')[0]).toMatchObject({ spell: 'Bless' });
     const end = events(log, 'concentration-end')[0];
     expect(end!.kind === 'concentration-end' && end.released.map((r) => r.condition)).toEqual(['Bless', 'Bless', 'Bless']); // the first cast: three allies
-    expect(viewAt(config, log, log.length).filter((v) => v.conditions.includes('Bless'))).toEqual([]);
-    const midway = viewAt(config, log, log.findIndex((l) => l.event.kind === 'concentration-end'));
-    expect(midway.filter((v) => v.conditions.includes('Bless'))).toHaveLength(3);
+    const first = log.findIndex((l) => l.event.kind === 'concentration-end');
+    expect(viewAt(config, log, first).filter((v) => v.conditions.includes('Bless'))).toHaveLength(3);
+    expect(viewAt(config, log, first + 1).filter((v) => v.conditions.includes('Bless'))).toEqual([]);
+  });
+});
+
+describe('Shield of Faith and Haste', () => {
+  const FAITH = { sign: 1 as const, attacks: false, saves: false, rounds: 100, acBonus: 2 };
+  const HASTE = {
+    sign: 1 as const,
+    attacks: false,
+    saves: false,
+    rounds: 10,
+    acBonus: 2,
+    dexSaveAdvantage: true,
+    extraAttack: true,
+    endsWith: { condition: 'incapacitated' as const, duration: { kind: 'endOfTargetNextTurn' as const } },
+  };
+  const faithAction = (): BuffAction => ({ name: 'Shield of Faith', spell: 'Shield of Faith', bonus: true, concentration: true, rollModifier: FAITH, maxTargets: 1 });
+  const hasteAction = (): BuffAction => ({ name: 'Haste', spell: 'Haste', concentration: true, rollModifier: HASTE, maxTargets: 1 });
+  const zap = (): Action => ({ kind: 'attack', name: 'Zap', attack: { name: 'Zap', toHit: 5, damage: [{ dice: '1d4', type: 'fire' }] } });
+
+  it('raises Armor Class', () => {
+    const attacker = makeCreature({ id: 'a', name: 'a' });
+    const target = makeCreature({ id: 't', name: 't', ac: 11 });
+    const opt = { name: 'Hit', toHit: 5, damage: [{ dice: '1', type: 'slashing' as const }] };
+    expect(performAttack(scriptedRng([6]), attacker, opt, target).attackRoll.hit).toBe(true); // 11 vs AC 11
+    addRollMod(target, FAITH, 'Shield of Faith', 'cleric', true);
+    expect(performAttack(scriptedRng([6]), attacker, opt, target).attackRoll.hit).toBe(false); // 11 vs AC 13
+  });
+
+  it('gives advantage on Dexterity saves only', () => {
+    const c = makeCreature({ id: 't', name: 't' });
+    addRollMod(c, HASTE, 'Haste', 'cleric', true);
+    // Advantage rolls two dice and keeps the higher.
+    expect(creatureSave(scriptedRng([1, 20]), c, 'dex', 15).success).toBe(true);
+    expect(creatureSave(scriptedRng([1]), c, 'wis', 15).success).toBe(false);
+  });
+
+  it('is cast as a bonus action on one ally, the one closest to falling', () => {
+    const cleric = makeCombatant('cleric', 'party', { hp: 50 });
+    cleric.actions = [zap()];
+    cleric.buffs = [faithAction()];
+    const tank = makeCombatant('tank', 'party', { hp: 40 });
+    tank.creature.hp = 12;
+    const goblins = [1, 2, 3].map((i) => makeCombatant(`gob${i}`, 'enemies', { dmg: '1d6+2' }));
+    const fighters = [cleric, tank, ...goblins];
+    expect(planTurn(cleric, fighters, createRng('f'), 3, 'action')?.kind).toBe('attack'); // the buff is a bonus action
+    const plan = planTurn(cleric, fighters, createRng('f'), 3, 'bonus');
+    expect(plan?.kind).toBe('buff');
+    expect(plan?.kind === 'buff' && plan.targets.map((t) => t.creature.name)).toEqual(['tank']);
+  });
+
+  it('puts Haste on the strong attacker, not on one that hits for almost nothing', () => {
+    const cleric = makeCombatant('cleric', 'party', { hp: 500, ac: 1 });
+    cleric.actions = [zap()];
+    cleric.buffs = [hasteAction()];
+    const fighter = makeCombatant('fighter', 'party', { dmg: '1d8+4' });
+    const wizard = makeCombatant('wizard', 'party', { dmg: '1' });
+    const foes = [1, 2, 3].map((i) => makeCombatant(`gob${i}`, 'enemies', { dmg: '1d6+2' }));
+    const plan = planTurn(cleric, [cleric, fighter, wizard, ...foes], createRng('h'), 3);
+    expect(plan?.kind).toBe('buff');
+    expect(plan?.kind === 'buff' && plan.targets.map((t) => t.creature.name)).toEqual(['fighter']);
+  });
+
+  it('gives a hasted creature an extra attack each turn, then lethargy when the spell ends', () => {
+    const cleric = makeCombatant('cleric', 'party', { hp: 500, ac: 1, dex: 30 });
+    cleric.actions = [zap()];
+    cleric.buffs = [hasteAction()];
+    cleric.creature.saveBonuses = { con: -50 };
+    const fighter = makeCombatant('fighter', 'party', { dmg: '1d8+4', toHit: 50, dex: 20, hp: 500 });
+    const striker = makeCombatant('striker', 'enemies', { hp: 5000, dmg: '4', toHit: 50, dex: 1 });
+    const config = { combatants: [cleric, fighter, striker] };
+    const { log } = runFight(config, createRng('haste'), { log: true });
+
+    expect(events(log, 'buff')[0]).toMatchObject({ actor: 'cleric', target: 'fighter', option: 'Haste' });
+    // After the first Haste, in a round the fighter attacks twice.
+    const rounds = new Map<number, number>();
+    for (const l of log) if (l.event.kind === 'attack' && l.event.attacker === 'fighter') rounds.set(l.round, (rounds.get(l.round) ?? 0) + 1);
+    expect([...rounds.values()].some((n) => n === 2)).toBe(true);
+    // When the cleric loses concentration, the fighter is Incapacitated until the end of its next turn.
+    const end = log.findIndex((l) => l.event.kind === 'concentration-end');
+    const gained = log.slice(end).find((l) => l.event.kind === 'condition-gained');
+    expect(gained?.event).toMatchObject({ target: 'fighter', condition: 'incapacitated', cause: 'Haste' });
+    const after = log.slice(end);
+    expect(after.some((l) => l.event.kind === 'skip' && l.event.actor === 'fighter')).toBe(true);
+    expect(after.some((l) => l.event.kind === 'condition-end' && l.event.target === 'fighter' && l.event.condition === 'incapacitated')).toBe(true);
   });
 });

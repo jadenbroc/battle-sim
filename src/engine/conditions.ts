@@ -37,6 +37,14 @@ export function canAct(c: Creature): boolean {
   return c.status === 'alive' && !hasCondition(c, 'incapacitated');
 }
 
+/** Armor Class including bonuses from spells (Shield of Faith, Haste). */
+export function armorClass(c: Creature): number {
+  return c.ac + (c.rollMods ?? []).reduce((sum, m) => sum + (m.acBonus ?? 0), 0);
+}
+
+/** Does a spell give this creature advantage on Dexterity saving throws (Haste)? */
+export const hasDexSaveAdvantage = (c: Creature): boolean => (c.rollMods ?? []).some((m) => m.dexSaveAdvantage);
+
 /** Exhaustion: -2 on every D20 Test per level. */
 export function d20Penalty(c: Creature): number {
   return 2 * (c.exhaustion ?? 0);
@@ -88,7 +96,7 @@ export interface SaveFlags extends RollFlags {
 export function saveFlags(c: Creature, ability: Ability): SaveFlags {
   const n = activeNames(c);
   const autoFail = (ability === 'str' || ability === 'dex') && (n.has('paralyzed') || n.has('petrified') || n.has('stunned') || n.has('unconscious'));
-  return { autoFail, advantage: false, disadvantage: ability === 'dex' && n.has('restrained') };
+  return { autoFail, advantage: ability === 'dex' && hasDexSaveAdvantage(c), disadvantage: ability === 'dex' && n.has('restrained') };
 }
 
 /** Initiative: Advantage while Invisible, Disadvantage while Incapacitated. */

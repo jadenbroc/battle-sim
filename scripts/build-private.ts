@@ -80,7 +80,7 @@ for (const s of all) {
 for (const s of spells) {
   const e = s.effect;
   if (!e) continue;
-  const dice = e.kind === 'heal' ? [e.dice] : e.kind === 'buff' ? [e.rollModifier.dice] : e.damage.map((d) => d.dice);
+  const dice = e.kind === 'heal' ? [e.dice] : e.kind === 'buff' ? (e.rollModifier.dice ? [e.rollModifier.dice] : []) : e.damage.map((d) => d.dice);
   for (const d of dice) {
     try {
       parseDice(d);
